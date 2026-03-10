@@ -16,7 +16,7 @@ export default function Home() {
             Location
           </p>
           <p className="mt-2 text-base font-semibold text-zinc-900">
-            107 E Railroad
+            503 Lake Ave
             <br />
             Storm Lake, Iowa 50588
           </p>
