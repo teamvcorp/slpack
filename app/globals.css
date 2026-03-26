@@ -3,11 +3,23 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --navy: #0c1d3b;
+  --blue: #34aef8;
+  --lightBlue: #ebf7ff;
+  --tan: #dcb08f;
+  --cream: #f8f4f1;
+  --red: #e50d39;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-navy: var(--navy);
+  --color-blue: var(--blue);
+  --color-light-blue: var(--lightBlue),
+  --color-tan: var(--tan);
+  --color-cream: var(--cream);
+  --color-red: var(--red);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -17,6 +29,10 @@
     --background: #0a0a0a;
     --foreground: #ededed;
   }
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
