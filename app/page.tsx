@@ -16,66 +16,94 @@ export default function Home() {
 
           {/* Shipping section */}
           <section id="shipping" className="px-8 py-16">
-            <h2 className="text-center text-3xl font-bold text-navy">
-              Shipping Made Easy
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-navy/70">
-              Whether you are sending a package across town or across the
-              country, we make it simple. Our team provides expert packing,
-              trusted shipping options, and high-quality printing, all in one
-              convenient location. No guesswork, no stress  just dependable
-              service every time.
-            </p>
-            <div className="mt-4 text-center">
-              <Link
-                href="#contact"
-                className="inline-block rounded-lg bg-blue px-6 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-navy hover:shadow-lg"
-              >
-                Visit us Today
-              </Link>
+            {/* Intro */}
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="text-sm font-semibold uppercase tracking-widest text-blue">Reliable &amp; Affordable</p>
+              <h2 className="mt-2 text-3xl font-bold text-navy">
+                Shipping Made Easy
+              </h2>
+              <p className="mt-4 text-lg leading-relaxed text-navy/70">
+                Whether you are sending a package across town or across the
+                country, we make it simple. No guesswork, no stress — just
+                dependable service every time.
+              </p>
             </div>
-            <div className="mt-10 flex flex-col items-center gap-10 md:flex-row">
-              <div className="flex-1">
+
+            {/* Two-column: image left, content right */}
+            <div className="mt-12 flex flex-col items-center gap-12 md:flex-row">
+              <div className="flex-1 overflow-hidden rounded-2xl shadow-md">
+                <Image
+                  src="/images/boxing.jpeg"
+                  alt="Packing a box for shipping"
+                  width={600}
+                  height={400}
+                  className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
+                />
+              </div>
+              <div className="flex-1 space-y-6">
                 <p className="text-navy/70">
                   We offer multiple carrier options so you can choose the speed
                   and price that works best for you.
                 </p>
-                <ul className="mt-4 space-y-2 text-sm text-navy/80">
-                  <li className="flex items-center gap-2"><span className="text-blue"></span> Domestic &amp; international shipping</li>
-                  <li className="flex items-center gap-2"><span className="text-blue"></span> Ground, express, and overnight options</li>
-                  <li className="flex items-center gap-2"><span className="text-blue"></span> Tracking and delivery confirmation</li>
-                  <li className="flex items-center gap-2"><span className="text-blue"></span> Insurance available for valuable items</li>
+                <ul className="space-y-3 text-sm text-navy/80">
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                    Domestic &amp; international shipping
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                    Ground, express, and overnight options
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                    Tracking and delivery confirmation
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                    Insurance available for valuable items
+                  </li>
                 </ul>
-                <p className="mt-6 font-semibold text-navy">Carriers we work with:</p>
-                <div className="mt-2 flex gap-4 text-sm font-medium text-navy/70">
-                  <span className="rounded-md bg-cream px-3 py-1">UPS</span>
-                  <span className="rounded-md bg-cream px-3 py-1">FedEx</span>
-                  <span className="rounded-md bg-cream px-3 py-1">USPS</span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-navy/50">Carriers we work with</p>
+                  <div className="mt-2 flex gap-3">
+                    <span className="rounded-lg border border-navy/10 bg-cream px-4 py-1.5 text-sm font-semibold text-navy transition-colors duration-200 hover:border-blue/30 hover:bg-blue/5">UPS</span>
+                    <span className="rounded-lg border border-navy/10 bg-cream px-4 py-1.5 text-sm font-semibold text-navy transition-colors duration-200 hover:border-blue/30 hover:bg-blue/5">FedEx</span>
+                    <span className="rounded-lg border border-navy/10 bg-cream px-4 py-1.5 text-sm font-semibold text-navy transition-colors duration-200 hover:border-blue/30 hover:bg-blue/5">USPS</span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex-1 overflow-hidden rounded-xl">
-                <Image
-                  src="/images/boxing.jpeg"
-                  alt="Packing a box for shipping"
-                  width={500}
-                  height={300}
-                  className="h-auto w-full rounded-xl object-cover transition-transform duration-500 hover:scale-105"
-                />
+                <Link
+                  href="#contact"
+                  className="inline-block rounded-lg bg-blue px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-navy hover:shadow-md"
+                >
+                  Get a Quote
+                </Link>
               </div>
             </div>
           </section>
 
           {/* Packing section */}
-          <section id="packing" className="bg-lightBlue px-8 py-16">
+          <section id="packing" className="bg-[#EBF7FF] px-16 pt-8">
             <div className="flex flex-col items-center gap-10 md:flex-row">
               <div className="flex-1">
                 <h2 className="text-3xl font-bold text-navy">Professional Packing</h2>
                 <p className="mt-3 text-navy/70">Protect your items with expert packing done right.</p>
-                <ul className="mt-4 space-y-2 text-sm text-navy/80">
-                  <li className="flex items-center gap-2"><span className="text-blue"></span> Custom packing for fragile or valuable items</li>
-                  <li className="flex items-center gap-2"><span className="text-blue"></span> Boxes, bubble wrap, and specialty materials</li>
-                  <li className="flex items-center gap-2"><span className="text-blue"></span> Artwork, electronics, antiques, and more</li>
-                  <li className="flex items-center gap-2"><span className="text-blue"></span> Peace of mind knowing it&apos;s packed securely</li>
+                <ul className="mt-4 space-y-3 text-sm text-navy/80">
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                    Custom packing for fragile or valuable items
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                    Boxes, bubble wrap, and specialty materials
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                    Artwork, electronics, antiques, and more
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                    Peace of mind knowing it&apos;s packed securely
+                  </li>
                 </ul>
                 <Link
                   href="#contact"
@@ -134,8 +162,8 @@ export default function Home() {
           </section>
 
           {/* Contact section */}
-          <section id="contact" className="bg-cream px-8 py-16">
-            <h2 className="text-center text-3xl font-bold text-navy">Contact Us</h2>
+          <section id="contact" className="bg-blue px-8 py-16">
+            <h2 className="text-center text-3xl font-bold text-cream">Contact Us</h2>
             <div className="mt-10 flex flex-col gap-10 md:flex-row">
               {/* FAQ + Map */}
               <div className="flex-1 space-y-6">

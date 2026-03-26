@@ -5,7 +5,7 @@
   --foreground: #171717;
   --navy: #0c1d3b;
   --blue: #34aef8;
-  --lightBlue: #ebf7ff;
+  --lightblue: #C3E6FC;
   --tan: #dcb08f;
   --cream: #f8f4f1;
   --red: #e50d39;
@@ -16,7 +16,7 @@
   --color-foreground: var(--foreground);
   --color-navy: var(--navy);
   --color-blue: var(--blue);
-  --color-light-blue: var(--lightBlue),
+  --color-light-blue: var(--lightblue);
   --color-tan: var(--tan);
   --color-cream: var(--cream);
   --color-red: var(--red);
