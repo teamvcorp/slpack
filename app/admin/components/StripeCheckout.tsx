@@ -30,6 +30,7 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [cardReady, setCardReady] = useState(false);
+  const [isCharging, setIsCharging] = useState(false);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stripeRef = useRef<any>(null);
@@ -118,7 +119,9 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
 
   async function handleCharge() {
     if (!stripeRef.current || !cardElementRef.current || !clientSecret) return;
-    setStep('processing');
+    // Do NOT change step to 'processing' here — that would unmount the card
+    // element div and destroy the Stripe element before confirmCardPayment runs.
+    setIsCharging(true);
     setErrorMsg(null);
 
     try {
@@ -133,6 +136,9 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
       });
 
       if (error) throw new Error(error.message ?? 'Payment declined');
+
+      // Payment confirmed — now safe to switch away from card step
+      setStep('processing');
 
       const submitRes = await fetch('/api/shipping/submit', {
         method: 'POST',
@@ -153,10 +159,13 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
       const trackingNumber: string = submitData.trackingNumber ?? 'PENDING';
       const labelBase64: string | null = submitData.labelBase64 ?? null;
       const labelMimeType: string | null = submitData.labelMimeType ?? null;
+      const labelError: string | null = submitData.labelError ?? null;
 
       setStep('success');
+      if (labelError) setErrorMsg(`Label error: ${labelError}`);
       setTimeout(() => onSuccess(trackingNumber, labelBase64, labelMimeType), 1800);
     } catch (err: unknown) {
+      setIsCharging(false);
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
       setStep('error');
     }
@@ -179,6 +188,9 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
             <p className="mt-1 text-xs text-navy/40">Receipt sent to {shipment.customerEmail}</p>
           )}
           <p className="mt-1 text-xs text-navy/40">Generating label…</p>
+          {errorMsg && (
+            <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-xs text-red">{errorMsg}</p>
+          )}
         </div>
       </div>
     );
@@ -310,12 +322,20 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
             <button
               type="button"
               onClick={handleCharge}
-              disabled={!cardReady}
+              disabled={!cardReady || isCharging}
               title={!cardReady ? 'Card element is loading…' : undefined}
               className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
               style={{ backgroundColor: accentColor }}
             >
-              {cardReady ? `Charge $${totalAmt.toFixed(2)}` : 'Loading card…'}
+              {isCharging ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                  Processing…
+                </span>
+              ) : cardReady ? `Charge $${totalAmt.toFixed(2)}` : 'Loading card…'}
             </button>
           ) : (
             <button

@@ -15,11 +15,9 @@ function daysUntil(dateString: string): number | null {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.DHL_API_KEY || !process.env.DHL_API_SECRET) {
-      return NextResponse.json(
-        { error: 'DHL credentials not configured (DHL_API_KEY / DHL_API_SECRET)' },
-        { status: 503 }
-      );
+    if (!process.env.DHL_API_KEY || process.env.DHL_API_KEY === 'your_dhl_api_key' ||
+        !process.env.DHL_API_SECRET || process.env.DHL_API_SECRET === 'your_dhl_api_secret') {
+      return NextResponse.json({ rates: [] });
     }
 
     const {

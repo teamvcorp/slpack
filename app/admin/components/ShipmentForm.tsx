@@ -174,7 +174,19 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         Package &amp; Shipment Details
       </h2>
 
-      {/* ── Row 1: Address fields ── */}
+      {/* ── Row 1: Destination street (full width) ── */}
+      <div className="mb-3">
+        <label className={lbl}>Dest Street Address</label>
+        <input
+          className={input}
+          value={form.destStreet}
+          onChange={(e) => set('destStreet', e.target.value)}
+          maxLength={100}
+          placeholder="123 Main St"
+        />
+      </div>
+
+      {/* ── Row 2: ZIP / City / State / Country / Validate ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <div>
           <label className={lbl}>Origin ZIP</label>

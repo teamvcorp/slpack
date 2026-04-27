@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
     let trackingNumber = 'PENDING';
     let labelBase64: string | null = null;
     let labelMimeType: string | null = null;
+    let labelError: string | null = null;
 
     try {
       const labelRes = await fetch(
@@ -30,14 +31,16 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({ shipment, serviceCode, insurance }),
         }
       );
+      const labelData = await labelRes.json();
       if (labelRes.ok) {
-        const labelData = await labelRes.json();
         trackingNumber = labelData.trackingNumber ?? 'PENDING';
         labelBase64 = labelData.labelBase64 ?? null;
         labelMimeType = labelData.labelMimeType ?? null;
+      } else {
+        labelError = labelData.error ?? `Label API error (${labelRes.status})`;
       }
-    } catch {
-      // Label generation failed — log and continue; tracking = PENDING
+    } catch (err: unknown) {
+      labelError = err instanceof Error ? err.message : 'Label generation failed';
     }
 
     // ── 2. Append to shipment log ────────────────────────────────────────────
@@ -98,7 +101,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ trackingNumber, labelBase64, labelMimeType });
+    return NextResponse.json({ trackingNumber, labelBase64, labelMimeType, labelError });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
