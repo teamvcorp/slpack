@@ -54,20 +54,23 @@ export async function POST(req: NextRequest) {
 
     const token = await getToken();
 
-    // UPS Address Validation Street Level API
+    // Use RequestOption 3 (street-level) when a street is provided, else 1 (ZIP/city lookup)
+    const requestOption = streetLine ? '3' : '1';
+    const addrKeyFormat: Record<string, unknown> = {
+      PostcodePrimaryLow: String(zip),
+      CountryCode: countryCode,
+    };
+    if (streetLine) addrKeyFormat.AddressLine = [String(streetLine)];
+    if (city) addrKeyFormat.PoliticalDivision2 = String(city);
+    if (state) addrKeyFormat.PoliticalDivision1 = String(state);
+
     const payload = {
       XAVRequest: {
         Request: {
-          RequestOption: '3', // 3 = Address Validation + Classification
+          RequestOption: requestOption,
           TransactionReference: { CustomerContext: 'slpack-addr-validate' },
         },
-        AddressKeyFormat: {
-          AddressLine: streetLine ? [String(streetLine)] : [],
-          PoliticalDivision2: city ? String(city) : undefined,
-          PoliticalDivision1: state ? String(state) : undefined,
-          PostcodePrimaryLow: String(zip),
-          CountryCode: countryCode,
-        },
+        AddressKeyFormat: addrKeyFormat,
       },
     };
 

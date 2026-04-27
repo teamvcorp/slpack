@@ -48,6 +48,7 @@ const COUNTRIES = [
 export default function ShipmentForm({ onSubmit, loading }: Props) {
   const [form, setForm] = useState<ShipmentInput>(DEFAULTS);
   const [validating, setValidating] = useState(false);
+  const [zipLookup, setZipLookup] = useState(false);
   const [addrResult, setAddrResult] = useState<AddressResult | null>(null);
   const [addrError, setAddrError] = useState<string | null>(null);
 
@@ -63,6 +64,33 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     onSubmit(form);
+  }
+
+  // Auto-populate city/state when ZIP is entered (UPS only — FedEx sandbox never returns suggested data)
+  async function lookupZip(zip: string, country: string) {
+    if (!zip || zip.length < 5) return;
+    if (country !== 'US') return;
+    setZipLookup(true);
+    try {
+      const res = await fetch('/api/shipping/ups/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zip, country }),
+      });
+      const data = await res.json();
+      const suggested = data?.suggested;
+      if (suggested?.city || suggested?.state) {
+        setForm((prev) => ({
+          ...prev,
+          destCity: suggested.city || prev.destCity,
+          destState: suggested.state || prev.destState,
+        }));
+      }
+    } catch {
+      // silent — ZIP lookup is best-effort
+    } finally {
+      setZipLookup(false);
+    }
   }
 
   async function handleValidateAddress() {
@@ -162,14 +190,25 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
 
         <div>
           <label className={lbl}>Dest ZIP</label>
-          <input
-            className={input}
-            value={form.destZip}
-            onChange={(e) => set('destZip', e.target.value)}
-            maxLength={10}
-            placeholder="90210"
-            required
-          />
+          <div className="relative">
+            <input
+              className={input}
+              value={form.destZip}
+              onChange={(e) => set('destZip', e.target.value)}
+              onBlur={(e) => lookupZip(e.target.value, form.destCountry)}
+              maxLength={10}
+              placeholder="90210"
+              required
+            />
+            {zipLookup && (
+              <span className="absolute right-2 top-2.5">
+                <svg className="h-3.5 w-3.5 animate-spin text-blue" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+              </span>
+            )}
+          </div>
         </div>
 
         <div>
