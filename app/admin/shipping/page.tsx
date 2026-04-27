@@ -101,7 +101,7 @@ export default function ShippingComparisonPage() {
   async function handleCompare(shipment: ShipmentInput) {
     setCurrentShipment(shipment);
     setPendingRate(null);
-    setCheckoutOpen(false);
+    setModalStep(null);
     setAnyLoading(true);
 
     // All four carriers fetched concurrently — each panel updates independently
