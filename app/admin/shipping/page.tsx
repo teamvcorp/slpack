@@ -46,7 +46,7 @@ export default function ShippingComparisonPage() {
   // Modal flow: null → 'carrier-detail' → 'checkout' → 'label'
   const [modalStep, setModalStep] = useState<'carrier-detail' | 'checkout' | 'label' | null>(null);
   const [previewCarrier, setPreviewCarrier] = useState<{ carrier: CarrierKey; rate: ShippingRate } | null>(null);
-  const [completedLabel, setCompletedLabel] = useState<{ tracking: string; base64: string | null } | null>(null);
+  const [completedLabel, setCompletedLabel] = useState<{ tracking: string; base64: string | null; mimeType: string | null } | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
 
   const markLoading = useCallback((carrier: CarrierKey) => {
@@ -132,8 +132,8 @@ export default function ShippingComparisonPage() {
     setModalStep('checkout');
   }
 
-  function handlePaymentSuccess(tracking: string, base64: string | null) {
-    setCompletedLabel({ tracking, base64 });
+  function handlePaymentSuccess(tracking: string, base64: string | null, mimeType: string | null) {
+    setCompletedLabel({ tracking, base64, mimeType });
     setModalStep('label');
   }
 
@@ -259,6 +259,7 @@ export default function ShippingComparisonPage() {
           selected={pendingRate}
           trackingNumber={completedLabel.tracking}
           labelBase64={completedLabel.base64}
+          labelMimeType={completedLabel.mimeType}
           onClose={handleLabelDone}
         />
       )}

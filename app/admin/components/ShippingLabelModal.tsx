@@ -8,6 +8,8 @@ interface Props {
   trackingNumber: string;
   /** Base64-encoded label image from the carrier API (PNG or PDF). Null = no binary label available. */
   labelBase64: string | null;
+  /** MIME type of labelBase64 — 'image/png' for FedEx/UPS, 'application/pdf' for USPS. */
+  labelMimeType?: string | null;
   onClose: () => void;
 }
 
@@ -25,7 +27,7 @@ const CARRIER_COLORS: Record<string, string> = {
   dhl: '#D40511',
 };
 
-export default function ShippingLabelModal({ selected, trackingNumber, labelBase64, onClose }: Props) {
+export default function ShippingLabelModal({ selected, trackingNumber, labelBase64, labelMimeType, onClose }: Props) {
   const printRef = useRef<HTMLDivElement>(null);
   const { carrier, rate, shipment } = selected;
   const carrierLabel = CARRIER_LABELS[carrier] ?? carrier.toUpperCase();
@@ -138,7 +140,17 @@ export default function ShippingLabelModal({ selected, trackingNumber, labelBase
               </div>
 
               {/* If carrier returned a label image */}
-              {labelBase64 && (
+              {labelBase64 && labelMimeType === 'application/pdf' && (
+                <div className="mx-3 mb-3">
+                  <embed
+                    src={`data:application/pdf;base64,${labelBase64}`}
+                    type="application/pdf"
+                    className="w-full rounded"
+                    style={{ height: '480px' }}
+                  />
+                </div>
+              )}
+              {labelBase64 && labelMimeType !== 'application/pdf' && (
                 <div className="mx-3 mb-3">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img

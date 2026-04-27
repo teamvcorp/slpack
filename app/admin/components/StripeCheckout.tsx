@@ -6,7 +6,7 @@ import type { SelectedRate } from '../types/shipping';
 interface Props {
   selected: SelectedRate;
   onClose: () => void;
-  onSuccess: (trackingNumber: string, labelBase64: string | null) => void;
+  onSuccess: (trackingNumber: string, labelBase64: string | null, labelMimeType: string | null) => void;
 }
 
 const CARRIER_LABELS: Record<string, string> = {
@@ -152,9 +152,10 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
       const submitData = await submitRes.json();
       const trackingNumber: string = submitData.trackingNumber ?? 'PENDING';
       const labelBase64: string | null = submitData.labelBase64 ?? null;
+      const labelMimeType: string | null = submitData.labelMimeType ?? null;
 
       setStep('success');
-      setTimeout(() => onSuccess(trackingNumber, labelBase64), 1800);
+      setTimeout(() => onSuccess(trackingNumber, labelBase64, labelMimeType), 1800);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
       setStep('error');
