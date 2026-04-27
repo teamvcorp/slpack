@@ -1,7 +1,7 @@
 "use client";
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 const NAV = [
   { label: 'Dashboard', href: '/admin' },
@@ -10,6 +10,12 @@ const NAV = [
 
 export default function AdminNav() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleLogout() {
+    await fetch('/api/admin/auth', { method: 'DELETE' });
+    router.push('/admin/login');
+  }
 
   return (
     <nav className="border-b border-white/10 bg-navy px-6 py-3">
@@ -45,6 +51,15 @@ export default function AdminNav() {
             >
               ← Main Site
             </Link>
+          </li>
+          <li>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="ml-1 rounded-md border border-white/20 px-3 py-2 text-xs font-medium text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              Log Out
+            </button>
           </li>
         </ul>
       </div>

@@ -5,10 +5,12 @@ import Image from "next/image";
 import Card from "./components/Card";
 import AskForm from "./components/AskForm";
 import { Footer } from "./components/Footer";
+import AdminShortcut from "./components/AdminShortcut";
 
 export default function Home() {
   return (
     <>
+      <AdminShortcut />
       <main className="min-h-screen bg-cream">
         <section className="mx-auto max-w-6xl bg-white shadow-sm">
           <Header />
