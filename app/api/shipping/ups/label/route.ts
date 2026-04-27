@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
           },
           ShipTo: {
             Name: shipment.customerName || 'Customer',
+            Phone: { Number: shipment.customerPhone || '5555555555' },
             Address: {
               AddressLine: [shipment.destStreet || ''],
               City: shipment.destCity || '',

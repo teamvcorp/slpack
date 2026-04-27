@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
         ...(String(shipment.destZip).length > 5
           ? { ZIPPlus4: String(shipment.destZip).slice(6, 10) }
           : {}),
+        ...(shipment.customerPhone ? { phone: shipment.customerPhone } : {}),
       },
       fromAddress: {
         firstName: 'Storm Lake Pack and Ship',

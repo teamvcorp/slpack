@@ -12,6 +12,7 @@ export interface ShipmentInput {
   heightIn: number;
   declaredValueUSD: number;
   customerName: string;
+  customerPhone: string;
   customerEmail: string;
 }
 
@@ -40,6 +41,24 @@ export interface SelectedRate {
   insurance: InsuranceOption;
 }
 
+/** A single package queued in the multi-package cart */
+export interface CartItem {
+  id: string;
+  carrier: CarrierKey;
+  rate: ShippingRate;
+  shipment: ShipmentInput;
+  insurance: InsuranceOption;
+}
+
+/** Result returned after submitting a CartItem to a carrier */
+export interface CartResult {
+  item: CartItem;
+  trackingNumber: string;
+  labelBase64: string | null;
+  labelMimeType: string | null;
+  labelError: string | null;
+}
+
 export interface InsuranceOption {
   enabled: boolean;
   /** Declared value in USD — mirrors shipment.declaredValueUSD */
@@ -65,5 +84,7 @@ export interface ShipmentLogEntry {
   trackingNumber: string | null;
   labelBase64: string | null;
   customerName: string;
+  customerPhone: string;
   customerEmail: string;
+  paymentMethod?: 'card' | 'cash';
 }

@@ -14,7 +14,8 @@ import type {
   CarrierResult,
   CarrierKey,
   ShippingRate,
-  SelectedRate,
+  CartItem,
+  CartResult,
   InsuranceOption,
 } from '../types/shipping';
 
@@ -39,15 +40,23 @@ const CARRIER_LABELS: Record<CarrierKey, string> = {
   dhl: 'DHL Express',
 };
 
+const CARRIER_COLORS: Record<CarrierKey, string> = {
+  fedex: '#4D148C',
+  ups: '#351C15',
+  usps: '#004B87',
+  dhl: '#D40511',
+};
+
 export default function ShippingComparisonPage() {
   const [results, setResults] = useState<Record<CarrierKey, CarrierResult>>(INITIAL_RESULTS);
   const [currentShipment, setCurrentShipment] = useState<ShipmentInput | null>(null);
-  const [pendingRate, setPendingRate] = useState<SelectedRate | null>(null);
-  // Modal flow: null → 'carrier-detail' → 'checkout' → 'label'
+  const [cart, setCart] = useState<CartItem[]>([]);
+  // Modal flow: null → 'carrier-detail' → back (item added to cart) → 'checkout' → 'label'
   const [modalStep, setModalStep] = useState<'carrier-detail' | 'checkout' | 'label' | null>(null);
   const [previewCarrier, setPreviewCarrier] = useState<{ carrier: CarrierKey; rate: ShippingRate } | null>(null);
-  const [completedLabel, setCompletedLabel] = useState<{ tracking: string; base64: string | null; mimeType: string | null } | null>(null);
+  const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
+  const [formKey, setFormKey] = useState(0);
 
   const markLoading = useCallback((carrier: CarrierKey) => {
     setResults((prev) => ({
@@ -100,7 +109,6 @@ export default function ShippingComparisonPage() {
 
   async function handleCompare(shipment: ShipmentInput) {
     setCurrentShipment(shipment);
-    setPendingRate(null);
     setModalStep(null);
     setAnyLoading(true);
 
@@ -121,37 +129,54 @@ export default function ShippingComparisonPage() {
     setModalStep('carrier-detail');
   }
 
-  function handleDetailConfirm({ insurance }: Pick<SelectedRate, 'insurance'>) {
+  function handleDetailConfirm({ insurance }: { insurance: InsuranceOption }) {
     if (!previewCarrier || !currentShipment) return;
-    setPendingRate({
+    const newItem: CartItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       carrier: previewCarrier.carrier,
       rate: previewCarrier.rate,
       shipment: currentShipment,
       insurance,
-    });
-    setModalStep('checkout');
+    };
+    setCart((prev) => [...prev, newItem]);
+    setPreviewCarrier(null);
+    setModalStep(null);
   }
 
-  function handlePaymentSuccess(tracking: string, base64: string | null, mimeType: string | null) {
-    setCompletedLabel({ tracking, base64, mimeType });
+  function handleRemoveCartItem(id: string) {
+    setCart((prev) => prev.filter((i) => i.id !== id));
+  }
+
+  function handleAddAnother() {
+    // Keep form as-is (address reuse) but clear rate results so staff can get fresh rates
+    setResults(INITIAL_RESULTS);
+    setCurrentShipment(null);
+    setFormKey((k) => k + 1);
+  }
+
+  function handlePaymentSuccess(results: CartResult[]) {
+    setCartResults(results);
     setModalStep('label');
   }
 
   function handleLabelDone() {
-    setPendingRate(null);
+    setCart([]);
     setPreviewCarrier(null);
-    setCompletedLabel(null);
+    setCartResults(null);
     setModalStep(null);
     setCurrentShipment(null);
     setResults(INITIAL_RESULTS);
+    setFormKey((k) => k + 1);
   }
 
   function closeAll() {
     setModalStep(null);
   }
 
-  const selectedCode = (carrier: CarrierKey) =>
-    pendingRate?.carrier === carrier ? pendingRate.rate.serviceCode : null;
+  const cartTotal = cart.reduce(
+    (s, i) => s + i.rate.totalChargeUSD + (i.insurance?.premiumUSD ?? 0),
+    0
+  );
 
   return (
     <div>
@@ -159,76 +184,111 @@ export default function ShippingComparisonPage() {
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-navy">Shipping Rate Comparison</h1>
         <p className="mt-1 text-sm text-navy/50">
-          Enter package details below to fetch live rates from all four carriers at once.
-          Select any rate, then charge the customer via Stripe.
+          Add one or more packages to the cart, then checkout with card or cash in a single transaction.
         </p>
       </div>
 
       {/* Shipment form */}
-      <ShipmentForm onSubmit={handleCompare} loading={anyLoading} />
+      <ShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} />
 
       {/* Carrier panels — 1 col mobile, 2 col tablet, 4 col desktop */}
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <FedExPanel
           result={results.fedex}
           onSelectRate={(r) => handleSelectRate('fedex', r)}
-          selectedRateCode={selectedCode('fedex')}
+          selectedRateCode={null}
         />
         <UPSPanel
           result={results.ups}
           onSelectRate={(r) => handleSelectRate('ups', r)}
-          selectedRateCode={selectedCode('ups')}
+          selectedRateCode={null}
         />
         <USPSPanel
           result={results.usps}
           onSelectRate={(r) => handleSelectRate('usps', r)}
-          selectedRateCode={selectedCode('usps')}
+          selectedRateCode={null}
         />
         <DHLPanel
           result={results.dhl}
           onSelectRate={(r) => handleSelectRate('dhl', r)}
-          selectedRateCode={selectedCode('dhl')}
+          selectedRateCode={null}
         />
       </div>
 
-      {/* Selected rate bar */}
-      {pendingRate && (
-        <div className="mt-5 flex flex-col items-start justify-between gap-3 rounded-xl border border-blue/20 bg-blue/5 px-5 py-4 sm:flex-row sm:items-center">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue">
-              Selected Rate
-            </p>
-            <p className="mt-0.5 text-base font-semibold text-navy">
-              {CARRIER_LABELS[pendingRate.carrier]} — {pendingRate.rate.serviceName}
-            </p>
-            {pendingRate.rate.estimatedDays && (
-              <p className="text-xs text-navy/50">
-                ~{pendingRate.rate.estimatedDays} day
-                {pendingRate.rate.estimatedDays !== 1 ? 's' : ''} transit
-              </p>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="text-2xl font-extrabold text-navy">
-              ${(pendingRate.rate.totalChargeUSD + (pendingRate.insurance?.premiumUSD ?? 0)).toFixed(2)}
-            </span>
+      {/* Cart panel */}
+      {cart.length > 0 && (
+        <div className="mt-5 rounded-xl border border-navy/10 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-navy">
+              Cart — {cart.length} Package{cart.length !== 1 ? 's' : ''}
+            </h2>
             <button
               type="button"
-              onClick={() => { setPendingRate(null); setPreviewCarrier(null); setModalStep(null); }}
-              className="rounded-lg border border-navy/20 px-3 py-1.5 text-sm text-navy/60 transition-colors hover:bg-cream"
+              onClick={handleAddAnother}
+              className="rounded-lg border border-navy/20 px-3 py-1.5 text-xs font-semibold text-navy/70 transition-colors hover:bg-cream"
             >
-              Clear
+              + Add Another Package
             </button>
+          </div>
+
+          <div className="space-y-2">
+            {cart.map((item, idx) => {
+              const itemTotal = item.rate.totalChargeUSD + (item.insurance?.premiumUSD ?? 0);
+              const color = CARRIER_COLORS[item.carrier];
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-start justify-between gap-3 rounded-lg border border-navy/10 bg-cream px-4 py-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color }}>
+                      Pkg {idx + 1} · {CARRIER_LABELS[item.carrier]}
+                    </p>
+                    <p className="text-sm font-semibold text-navy">{item.rate.serviceName}</p>
+                    <p className="text-xs text-navy/50 truncate">
+                      {item.shipment.destStreet && `${item.shipment.destStreet}, `}
+                      {item.shipment.destCity || item.shipment.destZip}
+                      {item.shipment.destState ? `, ${item.shipment.destState}` : ''}
+                      {' · '}{item.shipment.weightLbs} lbs
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-base font-extrabold text-navy">${itemTotal.toFixed(2)}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCartItem(item.id)}
+                      className="rounded-lg p-1 text-navy/30 transition-colors hover:bg-red/10 hover:text-red"
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-navy/50">Total</p>
+              <p className="text-2xl font-extrabold text-navy">${cartTotal.toFixed(2)}</p>
+            </div>
             <button
               type="button"
               onClick={() => setModalStep('checkout')}
-              className="rounded-lg bg-blue px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
+              className="rounded-lg bg-blue px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
             >
-              Charge Customer
+              Checkout ({cart.length}) →
             </button>
           </div>
         </div>
+      )}
+
+      {/* No-rates prompt when form is ready but no items in cart yet */}
+      {cart.length === 0 && currentShipment && !anyLoading && (
+        <p className="mt-4 text-center text-sm text-navy/40">
+          Select a rate above to add a package to the cart.
+        </p>
       )}
 
       {/* Carrier detail modal */}
@@ -244,22 +304,19 @@ export default function ShippingComparisonPage() {
         />
       )}
 
-      {/* Stripe checkout modal */}
-      {modalStep === 'checkout' && pendingRate && (
+      {/* Checkout modal */}
+      {modalStep === 'checkout' && cart.length > 0 && (
         <StripeCheckout
-          selected={pendingRate}
+          cart={cart}
           onClose={closeAll}
           onSuccess={handlePaymentSuccess}
         />
       )}
 
       {/* Label modal */}
-      {modalStep === 'label' && pendingRate && completedLabel && (
+      {modalStep === 'label' && cartResults && cartResults.length > 0 && (
         <ShippingLabelModal
-          selected={pendingRate}
-          trackingNumber={completedLabel.tracking}
-          labelBase64={completedLabel.base64}
-          labelMimeType={completedLabel.mimeType}
+          results={cartResults}
           onClose={handleLabelDone}
         />
       )}

@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
           {
             contact: {
               personName: shipment.customerName || 'Customer',
-              phoneNumber: '5555555555',
+              phoneNumber: shipment.customerPhone || '5555555555',
             },
             address: {
               streetLines: [shipment.destStreet || ''],

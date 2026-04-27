@@ -1,26 +1,19 @@
-import path from 'path';
-import fs from 'fs';
+import client from '@/lib/mongodb';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
 
-const LOG_FILE = path.join(process.cwd(), 'data', 'shipment-log.json');
+const DB = 'slpack';
+const COLLECTION = 'shipments';
 
-function ensureFile() {
-  const dir = path.dirname(LOG_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  if (!fs.existsSync(LOG_FILE)) fs.writeFileSync(LOG_FILE, '[]', 'utf8');
+function col() {
+  return client.db(DB).collection<ShipmentLogEntry>(COLLECTION);
 }
 
-export function readLog(): ShipmentLogEntry[] {
-  ensureFile();
-  try {
-    return JSON.parse(fs.readFileSync(LOG_FILE, 'utf8')) as ShipmentLogEntry[];
-  } catch {
-    return [];
-  }
+export async function readLog(): Promise<ShipmentLogEntry[]> {
+  await client.connect();
+  return col().find({}).sort({ timestamp: -1 }).toArray();
 }
 
-export function appendLog(entry: ShipmentLogEntry): void {
-  const entries = readLog();
-  entries.unshift(entry); // newest first
-  fs.writeFileSync(LOG_FILE, JSON.stringify(entries, null, 2), 'utf8');
+export async function appendLog(entry: ShipmentLogEntry): Promise<void> {
+  await client.connect();
+  await col().insertOne(entry);
 }

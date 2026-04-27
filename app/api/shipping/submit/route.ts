@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
       insuranceUSD,
       totalUSD,
       insurance,
+      paymentMethod,
     } = await req.json();
 
     // ── 1. Generate label via carrier API ───────────────────────────────────
@@ -60,10 +61,12 @@ export async function POST(req: NextRequest) {
       trackingNumber,
       labelBase64,
       customerName: shipment.customerName ?? '',
+      customerPhone: shipment.customerPhone ?? '',
       customerEmail: shipment.customerEmail ?? '',
+      paymentMethod: (paymentMethod === 'cash' ? 'cash' : 'card') as 'card' | 'cash',
     };
 
-    appendLog(entry);
+    await appendLog(entry);
 
     // ── 3. Send receipt email via Resend ─────────────────────────────────────
     if (shipment.customerEmail && process.env.RESEND_API_KEY) {

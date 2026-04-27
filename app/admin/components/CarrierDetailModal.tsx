@@ -195,7 +195,7 @@ export default function CarrierDetailModal({
             className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all active:scale-95"
             style={{ backgroundColor: meta.color }}
           >
-            Proceed to Payment — ${total.toFixed(2)}
+            Add to Cart — ${total.toFixed(2)}
           </button>
         </div>
       </div>

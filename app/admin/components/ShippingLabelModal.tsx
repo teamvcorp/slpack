@@ -1,15 +1,10 @@
 "use client";
 
-import { useRef } from 'react';
-import type { SelectedRate } from '../types/shipping';
+import { useState, useRef } from 'react';
+import type { CartResult } from '../types/shipping';
 
 interface Props {
-  selected: SelectedRate;
-  trackingNumber: string;
-  /** Base64-encoded label image from the carrier API (PNG or PDF). Null = no binary label available. */
-  labelBase64: string | null;
-  /** MIME type of labelBase64 — 'image/png' for FedEx/UPS, 'application/pdf' for USPS. */
-  labelMimeType?: string | null;
+  results: CartResult[];
   onClose: () => void;
 }
 
@@ -27,9 +22,13 @@ const CARRIER_COLORS: Record<string, string> = {
   dhl: '#D40511',
 };
 
-export default function ShippingLabelModal({ selected, trackingNumber, labelBase64, labelMimeType, onClose }: Props) {
+export default function ShippingLabelModal({ results, onClose }: Props) {
+  const [index, setIndex] = useState(0);
   const printRef = useRef<HTMLDivElement>(null);
-  const { carrier, rate, shipment } = selected;
+
+  const current = results[index];
+  const { item, trackingNumber, labelBase64, labelMimeType, labelError } = current;
+  const { carrier, rate, shipment } = item;
   const carrierLabel = CARRIER_LABELS[carrier] ?? carrier.toUpperCase();
   const accentColor = CARRIER_COLORS[carrier] ?? '#34aef8';
   const now = new Date();
@@ -75,11 +74,31 @@ export default function ShippingLabelModal({ selected, trackingNumber, labelBase
         >
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-white/60">
-              Shipping Label
+              Shipping Label{results.length > 1 ? ` · ${index + 1} of ${results.length}` : ''}
             </p>
             <h3 className="text-lg font-bold text-white">{carrierLabel} Label Ready</h3>
           </div>
           <div className="flex gap-2">
+            {results.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                  disabled={index === 0}
+                  className="rounded-lg bg-white/20 px-2 py-1.5 text-sm font-bold text-white transition-colors hover:bg-white/30 disabled:opacity-30"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIndex((i) => Math.min(results.length - 1, i + 1))}
+                  disabled={index === results.length - 1}
+                  className="rounded-lg bg-white/20 px-2 py-1.5 text-sm font-bold text-white transition-colors hover:bg-white/30 disabled:opacity-30"
+                >
+                  ›
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={handlePrint}
@@ -120,6 +139,12 @@ export default function ShippingLabelModal({ selected, trackingNumber, labelBase
                 <div>
                   <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-navy/40">To</p>
                   <p className="font-semibold text-navy">{shipment.customerName || 'Customer'}</p>
+                  {shipment.customerPhone && (
+                    <p className="text-navy/70">{shipment.customerPhone}</p>
+                  )}
+                  {shipment.destStreet && (
+                    <p className="text-navy/70">{shipment.destStreet}</p>
+                  )}
                   {shipment.destCity && (
                     <p className="text-navy/70">
                       {shipment.destCity}
@@ -138,6 +163,33 @@ export default function ShippingLabelModal({ selected, trackingNumber, labelBase
                 <p className="text-[10px] uppercase tracking-widest text-navy/40">Tracking Number</p>
                 <p className="mt-1 text-xl font-bold tracking-[0.15em] text-navy">{trackingNumber}</p>
               </div>
+
+              {/* Carrier processing status */}
+              {labelError ? (
+                <div className="mx-3 mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 flex items-start gap-2">
+                  <span className="mt-0.5 text-red-500">⚠</span>
+                  <div>
+                    <p className="text-[11px] font-semibold text-red-700">Carrier Label Error</p>
+                    <p className="text-[10px] text-red-600 mt-0.5">{labelError}</p>
+                    <p className="text-[10px] text-red-500 mt-0.5">Shipment may not be registered with {carrierLabel}. Verify manually.</p>
+                  </div>
+                </div>
+              ) : (trackingNumber && trackingNumber !== 'PENDING') ? (
+                <div className="mx-3 mb-3 rounded-lg border border-green-300 bg-green-50 px-3 py-2 flex items-center gap-2">
+                  <svg className="h-4 w-4 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <div>
+                    <p className="text-[11px] font-semibold text-green-700">Shipment Confirmed — {carrierLabel}</p>
+                    <p className="text-[10px] text-green-600">Package successfully registered with carrier.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mx-3 mb-3 rounded-lg border border-yellow-300 bg-yellow-50 px-3 py-2 flex items-center gap-2">
+                  <span className="text-yellow-500 text-sm">⏳</span>
+                  <p className="text-[11px] text-yellow-700">Tracking number pending — label may need manual generation.</p>
+                </div>
+              )}
 
               {/* If carrier returned a label image */}
               {labelBase64 && labelMimeType === 'application/pdf' && (
@@ -198,13 +250,23 @@ export default function ShippingLabelModal({ selected, trackingNumber, labelBase
           >
             🖨 Print Label
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream"
-          >
-            Done
-          </button>
+          {results.length > 1 && index < results.length - 1 ? (
+            <button
+              type="button"
+              onClick={() => setIndex((i) => i + 1)}
+              className="flex-1 rounded-lg bg-blue px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
+            >
+              Next Label ({index + 2} of {results.length}) ›
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream"
+            >
+              Done
+            </button>
+          )}
         </div>
       </div>
     </div>

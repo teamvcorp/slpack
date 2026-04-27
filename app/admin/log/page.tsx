@@ -38,6 +38,7 @@ export default function ShipmentLogPage() {
   const [data, setData] = useState<LogResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const fetchLog = useCallback(async (p: Period) => {
     setLoading(true);
@@ -63,6 +64,14 @@ export default function ShipmentLogPage() {
           <h1 className="text-2xl font-bold text-navy">Shipping Log</h1>
           <p className="mt-1 text-sm text-navy/50">Activity summary by day, week, and month</p>
         </div>
+        {/* Search */}
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search customer, tracking, carrier…"
+          className="rounded-xl border border-navy/10 bg-white px-4 py-2 text-sm text-navy placeholder-navy/30 shadow-sm outline-none focus:border-navy/30 focus:ring-1 focus:ring-navy/20 sm:w-64"
+        />
         {/* Period tabs */}
         <div className="flex gap-1 rounded-xl border border-navy/10 bg-cream p-1">
           {PERIODS.map((p) => (
@@ -115,11 +124,25 @@ export default function ShipmentLogPage() {
           </div>
 
           {/* Entries table */}
-          {data.entries.length === 0 ? (
-            <div className="rounded-xl border border-navy/10 bg-white p-10 text-center text-navy/40">
-              No shipments for this period.
-            </div>
-          ) : (
+          {(() => {
+            const q = search.trim().toLowerCase();
+            const filtered = q
+              ? data.entries.filter((e) =>
+                  (e.customerName ?? '').toLowerCase().includes(q) ||
+                  (e.customerEmail ?? '').toLowerCase().includes(q) ||
+                  (e.trackingNumber ?? '').toLowerCase().includes(q) ||
+                  (e.carrier ?? '').toLowerCase().includes(q) ||
+                  (CARRIER_LABELS[e.carrier] ?? '').toLowerCase().includes(q) ||
+                  (e.serviceName ?? '').toLowerCase().includes(q) ||
+                  (e.destCity ?? '').toLowerCase().includes(q) ||
+                  String(e.destZip ?? '').includes(q)
+                )
+              : data.entries;
+            return filtered.length === 0 ? (
+              <div className="rounded-xl border border-navy/10 bg-white p-10 text-center text-navy/40">
+                {search ? `No results for "${search}".` : 'No shipments for this period.'}
+              </div>
+            ) : (
             <div className="overflow-hidden rounded-xl border border-navy/10 bg-white shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -135,7 +158,7 @@ export default function ShipmentLogPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-navy/5">
-                    {data.entries.map((entry) => {
+                    {filtered.map((entry) => {
                       const dt = new Date(entry.timestamp);
                       const color = CARRIER_COLORS[entry.carrier] ?? '#ccc';
                       return (
@@ -178,7 +201,8 @@ export default function ShipmentLogPage() {
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
         </>
       )}
 

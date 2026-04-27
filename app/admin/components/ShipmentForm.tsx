@@ -29,6 +29,7 @@ const DEFAULTS: ShipmentInput = {
   heightIn: 6,
   declaredValueUSD: 0,
   customerName: '',
+  customerPhone: '',
   customerEmail: '',
 };
 
@@ -191,12 +192,9 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         <div>
           <label className={lbl}>Origin ZIP</label>
           <input
-            className={input}
-            value={form.originZip}
-            onChange={(e) => set('originZip', e.target.value)}
-            maxLength={10}
-            placeholder="50588"
-            required
+            className={`${input} cursor-not-allowed opacity-60`}
+            value="50588"
+            readOnly
           />
         </div>
 
@@ -392,7 +390,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
       </div>
 
       {/* ── Row 3: Customer info ── */}
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <label className={lbl}>Customer Name</label>
           <input
@@ -401,6 +399,17 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
             onChange={(e) => set('customerName', e.target.value)}
             maxLength={100}
             placeholder="Jane Smith"
+          />
+        </div>
+        <div>
+          <label className={lbl}>Customer Phone</label>
+          <input
+            className={input}
+            type="tel"
+            value={form.customerPhone}
+            onChange={(e) => set('customerPhone', e.target.value)}
+            maxLength={20}
+            placeholder="(712) 555-0100"
           />
         </div>
         <div>

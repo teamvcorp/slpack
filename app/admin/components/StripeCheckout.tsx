@@ -1,12 +1,43 @@
 ﻿"use client";
 
 import { useState, useRef, useEffect } from 'react';
-import type { SelectedRate } from '../types/shipping';
+import type { CartItem, CartResult } from '../types/shipping';
 
 interface Props {
-  selected: SelectedRate;
+  cart: CartItem[];
   onClose: () => void;
-  onSuccess: (trackingNumber: string, labelBase64: string | null, labelMimeType: string | null) => void;
+  onSuccess: (results: CartResult[], paymentMethod: 'card' | 'cash') => void;
+}
+
+async function submitItem(item: CartItem, paymentMethod: 'card' | 'cash'): Promise<CartResult> {
+  const shippingUSD = item.rate.totalChargeUSD;
+  const insuranceUSD = item.insurance?.premiumUSD ?? 0;
+  const totalUSD = shippingUSD + insuranceUSD;
+
+  const res = await fetch('/api/shipping/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      carrier: item.carrier,
+      serviceName: item.rate.serviceName,
+      serviceCode: item.rate.serviceCode,
+      shipment: item.shipment,
+      shippingUSD,
+      insuranceUSD,
+      totalUSD,
+      insurance: item.insurance,
+      paymentMethod,
+    }),
+  });
+
+  const data = await res.json();
+  return {
+    item,
+    trackingNumber: data.trackingNumber ?? 'PENDING',
+    labelBase64: data.labelBase64 ?? null,
+    labelMimeType: data.labelMimeType ?? null,
+    labelError: data.labelError ?? null,
+  };
 }
 
 const CARRIER_LABELS: Record<string, string> = {
@@ -25,12 +56,13 @@ const CARRIER_COLORS: Record<string, string> = {
 
 type Step = 'review' | 'card' | 'processing' | 'success' | 'error';
 
-export default function StripeCheckout({ selected, onClose, onSuccess }: Props) {
+export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
   const [step, setStep] = useState<Step>('review');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [cardReady, setCardReady] = useState(false);
   const [isCharging, setIsCharging] = useState(false);
+  const [processingMsg, setProcessingMsg] = useState('Processing…');
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stripeRef = useRef<any>(null);
@@ -38,13 +70,12 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
   const cardElementRef = useRef<any>(null);
   const mountRef = useRef<HTMLDivElement>(null);
 
-  const { rate, carrier, shipment, insurance } = selected;
-  const label = CARRIER_LABELS[carrier] ?? carrier.toUpperCase();
-  const accentColor = CARRIER_COLORS[carrier] ?? '#34aef8';
+  const totalShipping = cart.reduce((s, i) => s + i.rate.totalChargeUSD, 0);
+  const totalInsurance = cart.reduce((s, i) => s + (i.insurance?.premiumUSD ?? 0), 0);
+  const grandTotal = totalShipping + totalInsurance;
 
-  const shippingAmt = rate.totalChargeUSD;
-  const insuranceAmt = insurance?.premiumUSD ?? 0;
-  const totalAmt = shippingAmt + insuranceAmt;
+  // Customer info from first item
+  const { customerName = '', customerEmail = '' } = cart[0]?.shipment ?? {};
 
   // Mount Stripe card element once the 'card' step is rendered
   useEffect(() => {
@@ -76,8 +107,26 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
     };
   }, [step]);
 
+  async function handleCash() {
+    setStep('processing');
+    setErrorMsg(null);
+    try {
+      const results: CartResult[] = [];
+      for (let i = 0; i < cart.length; i++) {
+        setProcessingMsg(`Processing package ${i + 1} of ${cart.length}…`);
+        results.push(await submitItem(cart[i], 'cash'));
+      }
+      setStep('success');
+      setTimeout(() => onSuccess(results, 'cash'), 1500);
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
+      setStep('error');
+    }
+  }
+
   async function handlePreparePayment() {
     setStep('processing');
+    setProcessingMsg('Initializing payment…');
     setErrorMsg(null);
 
     try {
@@ -85,14 +134,14 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amountUSD: totalAmt,
-          carrier,
-          serviceName: rate.serviceName,
-          customerEmail: shipment.customerEmail,
+          amountUSD: grandTotal,
+          carrier: cart[0]?.carrier ?? 'multi',
+          serviceName: cart.length === 1 ? cart[0].rate.serviceName : `${cart.length} packages`,
+          customerEmail,
           shipmentDetails: {
-            originZip: shipment.originZip,
-            destZip: shipment.destZip,
-            weightLbs: shipment.weightLbs,
+            originZip: cart[0]?.shipment.originZip,
+            destZip: cart[0]?.shipment.destZip,
+            weightLbs: cart.reduce((s, i) => s + i.shipment.weightLbs, 0),
           },
         }),
       });
@@ -129,8 +178,8 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
         payment_method: {
           card: cardElementRef.current,
           billing_details: {
-            name: shipment.customerName || undefined,
-            email: shipment.customerEmail || undefined,
+            name: customerName || undefined,
+            email: customerEmail || undefined,
           },
         },
       });
@@ -139,31 +188,13 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
 
       // Payment confirmed — now safe to switch away from card step
       setStep('processing');
-
-      const submitRes = await fetch('/api/shipping/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          carrier,
-          serviceName: rate.serviceName,
-          serviceCode: rate.serviceCode,
-          shipment,
-          shippingUSD: shippingAmt,
-          insuranceUSD: insuranceAmt,
-          totalUSD: totalAmt,
-          insurance,
-        }),
-      });
-
-      const submitData = await submitRes.json();
-      const trackingNumber: string = submitData.trackingNumber ?? 'PENDING';
-      const labelBase64: string | null = submitData.labelBase64 ?? null;
-      const labelMimeType: string | null = submitData.labelMimeType ?? null;
-      const labelError: string | null = submitData.labelError ?? null;
-
+      const results: CartResult[] = [];
+      for (let i = 0; i < cart.length; i++) {
+        setProcessingMsg(`Generating label ${i + 1} of ${cart.length}…`);
+        results.push(await submitItem(cart[i], 'card'));
+      }
       setStep('success');
-      if (labelError) setErrorMsg(`Label error: ${labelError}`);
-      setTimeout(() => onSuccess(trackingNumber, labelBase64, labelMimeType), 1800);
+      setTimeout(() => onSuccess(results, 'card'), 1800);
     } catch (err: unknown) {
       setIsCharging(false);
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
@@ -182,15 +213,12 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
           </div>
           <h3 className="mt-4 text-xl font-bold text-navy">Payment Successful</h3>
           <p className="mt-2 text-sm text-navy/60">
-            ${totalAmt.toFixed(2)} charged · {label}
+            ${grandTotal.toFixed(2)} · {cart.length} package{cart.length !== 1 ? 's' : ''}
           </p>
-          {shipment.customerEmail && (
-            <p className="mt-1 text-xs text-navy/40">Receipt sent to {shipment.customerEmail}</p>
+          {customerEmail && (
+            <p className="mt-1 text-xs text-navy/40">Receipt sent to {customerEmail}</p>
           )}
-          <p className="mt-1 text-xs text-navy/40">Generating label…</p>
-          {errorMsg && (
-            <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-xs text-red">{errorMsg}</p>
-          )}
+          <p className="mt-1 text-xs text-navy/40">Generating labels…</p>
         </div>
       </div>
     );
@@ -200,11 +228,13 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/60 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Header */}
-        <div
-          className="flex items-center justify-between px-6 py-4"
-          style={{ backgroundColor: accentColor }}
-        >
-          <h3 className="text-lg font-bold text-white">Charge Customer</h3>
+        <div className="flex items-center justify-between bg-navy px-6 py-4">
+          <div>
+            <h3 className="text-lg font-bold text-white">Charge Customer</h3>
+            <p className="text-xs text-white/50">
+              {cart.length} package{cart.length !== 1 ? 's' : ''}
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -215,61 +245,65 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
           </button>
         </div>
 
-        <div className="px-6 py-5">
-          {/* Order summary */}
-          <div className="rounded-xl bg-cream p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-navy/40">{label}</p>
-            <div className="mt-1 flex items-end justify-between">
-              <div>
-                <p className="text-base font-semibold text-navy">{rate.serviceName}</p>
-                {rate.estimatedDays && (
-                  <p className="text-xs text-navy/50">
-                    ~{rate.estimatedDays} day{rate.estimatedDays !== 1 ? 's' : ''} transit
-                  </p>
-                )}
-              </div>
-              <span className="text-2xl font-extrabold text-navy">
-                ${totalAmt.toFixed(2)}
-              </span>
-            </div>
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-5">
+          {/* Package list */}
+          <div className="space-y-2">
+            {cart.map((item, idx) => {
+              const itemTotal = item.rate.totalChargeUSD + (item.insurance?.premiumUSD ?? 0);
+              const carrierLabel = CARRIER_LABELS[item.carrier] ?? item.carrier.toUpperCase();
+              const color = CARRIER_COLORS[item.carrier] ?? '#34aef8';
+              return (
+                <div key={item.id} className="rounded-xl border border-navy/10 bg-cream p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color }}>
+                        Pkg {idx + 1} · {carrierLabel}
+                      </p>
+                      <p className="text-sm font-semibold text-navy">{item.rate.serviceName}</p>
+                      <p className="text-xs text-navy/50">
+                        {item.shipment.destStreet && `${item.shipment.destStreet}, `}
+                        {item.shipment.destCity || item.shipment.destZip}
+                        {item.shipment.destState ? `, ${item.shipment.destState}` : ''}
+                        {' · '}{item.shipment.weightLbs} lbs
+                      </p>
+                      {(item.insurance?.premiumUSD ?? 0) > 0 && (
+                        <p className="text-xs text-navy/40">
+                          + ${item.insurance.premiumUSD.toFixed(2)} insurance
+                        </p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-base font-extrabold text-navy">
+                      ${itemTotal.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          {/* Cost breakdown */}
-          <div className="mt-3 space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-navy/50">Shipping</span>
-              <span className="font-medium text-navy">${shippingAmt.toFixed(2)}</span>
-            </div>
-            {insuranceAmt > 0 && (
-              <div className="flex justify-between">
-                <span className="text-navy/50">Insurance (${insurance.valueUSD.toFixed(2)} declared)</span>
-                <span className="font-medium text-navy">${insuranceAmt.toFixed(2)}</span>
-              </div>
-            )}
+          {/* Grand total */}
+          <div className="mt-3 flex items-center justify-between rounded-xl bg-navy/5 px-4 py-3">
+            <span className="text-sm font-semibold text-navy">Total</span>
+            <span className="text-2xl font-extrabold text-navy">${grandTotal.toFixed(2)}</span>
           </div>
 
           {/* Customer info */}
-          <div className="mt-3 space-y-1 text-sm">
-            {shipment.customerName && (
-              <div className="flex justify-between">
-                <span className="text-navy/50">Customer</span>
-                <span className="font-medium text-navy">{shipment.customerName}</span>
-              </div>
-            )}
-            {shipment.customerEmail && (
-              <div className="flex justify-between">
-                <span className="text-navy/50">Email</span>
-                <span className="font-medium text-navy">{shipment.customerEmail}</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-navy/50">Ship to</span>
-              <span className="font-medium text-navy">
-                {shipment.destZip}
-                {shipment.destCountry !== 'US' ? ` (${shipment.destCountry})` : ''}
-              </span>
+          {(customerName || customerEmail) && (
+            <div className="mt-3 space-y-1 text-sm">
+              {customerName && (
+                <div className="flex justify-between">
+                  <span className="text-navy/50">Customer</span>
+                  <span className="font-medium text-navy">{customerName}</span>
+                </div>
+              )}
+              {customerEmail && (
+                <div className="flex justify-between">
+                  <span className="text-navy/50">Email</span>
+                  <span className="font-medium text-navy">{customerEmail}</span>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           {/* Stripe card element — only rendered when on card step */}
           {step === 'card' && (
@@ -287,6 +321,17 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
             </div>
           )}
 
+          {/* Processing message */}
+          {step === 'processing' && (
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-navy/60">
+              <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              {processingMsg}
+            </div>
+          )}
+
           {step === 'error' && errorMsg && (
             <p className="mt-3 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{errorMsg}</p>
           )}
@@ -298,36 +343,37 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
             type="button"
             onClick={onClose}
             disabled={step === 'processing'}
-            className="flex-1 rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream disabled:opacity-40"
+            className="rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream disabled:opacity-40"
           >
             Cancel
           </button>
 
-          {step === 'processing' ? (
-            <button
-              type="button"
-              disabled
-              className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white opacity-70"
-              style={{ backgroundColor: accentColor }}
-            >
-              <span className="flex items-center justify-center gap-2">
-                <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                </svg>
-                Processing…
-              </span>
-            </button>
-          ) : step === 'card' ? (
-            <button
-              type="button"
-              onClick={handleCharge}
-              disabled={!cardReady || isCharging}
-              title={!cardReady ? 'Card element is loading…' : undefined}
-              className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
-              style={{ backgroundColor: accentColor }}
-            >
-              {isCharging ? (
+          <div className="flex flex-1 gap-2">
+            {step === 'review' && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleCash}
+                  className="flex-1 rounded-lg border-2 border-green-600 px-3 py-2.5 text-sm font-semibold text-green-700 transition-colors hover:bg-green-50"
+                >
+                  💵 Cash
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePreparePayment}
+                  className="flex-1 rounded-lg bg-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
+                >
+                  💳 Card
+                </button>
+              </>
+            )}
+
+            {step === 'processing' && (
+              <button
+                type="button"
+                disabled
+                className="flex-1 rounded-lg bg-blue/50 px-4 py-2.5 text-sm font-semibold text-white opacity-70"
+              >
                 <span className="flex items-center justify-center gap-2">
                   <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -335,18 +381,39 @@ export default function StripeCheckout({ selected, onClose, onSuccess }: Props) 
                   </svg>
                   Processing…
                 </span>
-              ) : cardReady ? `Charge $${totalAmt.toFixed(2)}` : 'Loading card…'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handlePreparePayment}
-              className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all active:scale-95"
-              style={{ backgroundColor: accentColor }}
-            >
-              Enter Card Details
-            </button>
-          )}
+              </button>
+            )}
+
+            {step === 'card' && (
+              <button
+                type="button"
+                onClick={handleCharge}
+                disabled={!cardReady || isCharging}
+                title={!cardReady ? 'Card element is loading…' : undefined}
+                className="flex-1 rounded-lg bg-blue px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isCharging ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    Processing…
+                  </span>
+                ) : cardReady ? `Charge $${grandTotal.toFixed(2)}` : 'Loading card…'}
+              </button>
+            )}
+
+            {step === 'error' && (
+              <button
+                type="button"
+                onClick={() => { setStep('review'); setErrorMsg(null); }}
+                className="flex-1 rounded-lg bg-navy px-4 py-2.5 text-sm font-semibold text-white"
+              >
+                Try Again
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

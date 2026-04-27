@@ -5,7 +5,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const period = searchParams.get('period') ?? 'day'; // day | week | month | all
 
-  const entries = readLog();
+  const entries = await readLog();
   const now = new Date();
 
   const filtered = entries.filter((e) => {
