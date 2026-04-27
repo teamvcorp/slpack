@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
 
     const token = await getToken();
 
-    // "Shop" RequestOption returns rates for all available services
+    // Shop endpoint returns rates for all available services
     const payload = {
       RateRequest: {
         Request: {
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    const rateRes = await fetch(`${BASE}/api/rating/v2403/Rate`, {
+    const rateRes = await fetch(`${BASE}/api/rating/v2403/Shop`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

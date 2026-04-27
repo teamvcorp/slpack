@@ -48,6 +48,22 @@ export async function POST(req: NextRequest) {
 
     const { streetLine, city, state, zip, country } = await req.json();
 
+    // FedEx sandbox always returns a hardcoded dummy address regardless of input.
+    // Skip the API call in sandbox mode and validate locally instead.
+    if (process.env.FEDEX_SANDBOX !== 'false') {
+      const messages: string[] = [];
+      if (!city) messages.push('City is recommended for accurate delivery');
+      if (!state && (country === 'US' || !country)) messages.push('State/province is recommended');
+      const valid = Boolean(zip && (streetLine || city));
+      const result: AddressValidationResult = {
+        valid,
+        status: valid ? 'VALIDATED' : 'UNRESOLVED',
+        suggested: null,
+        messages,
+      };
+      return NextResponse.json(result);
+    }
+
     if (!zip) {
       return NextResponse.json({ error: 'ZIP/postal code is required' }, { status: 400 });
     }

@@ -1,6 +1,7 @@
 export interface ShipmentInput {
   originZip: string;
   originCountry: string;
+  destStreet: string;
   destZip: string;
   destCity: string;
   destState: string;

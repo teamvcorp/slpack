@@ -18,6 +18,7 @@ interface AddressResult {
 const DEFAULTS: ShipmentInput = {
   originZip: '50588',
   originCountry: 'US',
+  destStreet: '',
   destZip: '',
   destCity: '',
   destState: '',
@@ -53,7 +54,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
   function set<K extends keyof ShipmentInput>(key: K, value: ShipmentInput[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
     // Clear validation result if address fields change
-    if (['destZip', 'destCity', 'destState', 'destCountry'].includes(key as string)) {
+    if (['destStreet', 'destZip', 'destCity', 'destState', 'destCountry'].includes(key as string)) {
       setAddrResult(null);
       setAddrError(null);
     }
@@ -70,22 +71,47 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
     setAddrResult(null);
     setAddrError(null);
     try {
-      const res = await fetch('/api/shipping/fedex/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          city: form.destCity,
-          state: form.destState,
-          zip: form.destZip,
-          country: form.destCountry,
-        }),
+      const body = JSON.stringify({
+        streetLine: form.destStreet,
+        city: form.destCity,
+        state: form.destState,
+        zip: form.destZip,
+        country: form.destCountry,
       });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setAddrError(data.error ?? `Validation error (${res.status})`);
-      } else {
-        setAddrResult(data as AddressResult);
+
+      // Call both FedEx and UPS in parallel; use whichever gives the richer result
+      const [fedexRes, upsRes] = await Promise.allSettled([
+        fetch('/api/shipping/fedex/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        }).then((r) => r.json()),
+        fetch('/api/shipping/ups/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        }).then((r) => r.json()),
+      ]);
+
+      const fedex = fedexRes.status === 'fulfilled' && !fedexRes.value?.error ? fedexRes.value : null;
+      const ups = upsRes.status === 'fulfilled' && !upsRes.value?.error ? upsRes.value : null;
+
+      // Prefer UPS (street-level) if it validated; otherwise prefer FedEx; fall back to whichever responded
+      const primary = (ups?.valid ? ups : null) ?? (fedex?.valid ? fedex : null) ?? ups ?? fedex;
+
+      if (!primary) {
+        setAddrError('Address validation unavailable from all carriers');
+        return;
       }
+
+      // Merge messages from both, deduped, skipping 'SKIPPED' notices
+      const allMessages: string[] = [
+        ...(fedex?.messages ?? []),
+        ...(ups?.messages ?? []),
+      ].filter((m: string) => !m.includes('only available for') && !m.includes('SKIPPED'));
+      const uniqueMessages = [...new Set(allMessages)];
+
+      setAddrResult({ ...primary, messages: uniqueMessages });
     } catch (err) {
       setAddrError(err instanceof Error ? err.message : 'Network error');
     } finally {
@@ -98,6 +124,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
     const s = addrResult.suggested;
     setForm((prev) => ({
       ...prev,
+      destStreet: s.streetLine || prev.destStreet,
       destCity: s.city || prev.destCity,
       destState: s.state || prev.destState,
       destZip: s.zip || prev.destZip,
@@ -119,7 +146,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         Package &amp; Shipment Details
       </h2>
 
-      {/* â”€â”€ Row 1: Address fields â”€â”€ */}
+      {/* ── Row 1: Address fields ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <div>
           <label className={lbl}>Origin ZIP</label>
@@ -195,10 +222,10 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
-                Checkingâ€¦
+                Checking…
               </>
             ) : (
-              <>âœ” Validate</>
+              <>✔ Validate</>
             )}
           </button>
         </div>
@@ -221,7 +248,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className={`font-semibold ${addrResult.valid ? 'text-green-700' : 'text-yellow-700'}`}>
-                {addrResult.valid ? 'âœ” Address validated by FedEx' : 'âš  Address could not be fully validated'}
+                {addrResult.valid ? '✔ Address validated' : '⚠ Address could not be fully validated'}
               </p>
               {addrResult.messages.map((m, i) => (
                 <p key={i} className="mt-0.5 text-yellow-700">{m}</p>
@@ -250,7 +277,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         </div>
       )}
 
-      {/* â”€â”€ Row 2: Package dimensions â”€â”€ */}
+      {/* ── Row 2: Package dimensions ── */}
       <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
         <div>
           <label className={lbl}>Weight (lbs)</label>
@@ -313,7 +340,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         </div>
       </div>
 
-      {/* â”€â”€ Row 3: Customer info â”€â”€ */}
+      {/* ── Row 3: Customer info ── */}
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className={lbl}>Customer Name</label>
@@ -350,7 +377,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
-              Fetching Ratesâ€¦
+              Fetching Rates…
             </span>
           ) : (
             'Compare All Carriers'

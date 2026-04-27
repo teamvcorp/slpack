@@ -59,8 +59,8 @@ export default function ShippingLabelModal({ selected, trackingNumber, labelBase
     `);
     win.document.close();
     win.focus();
+    win.onafterprint = () => win.close();
     win.print();
-    win.close();
   }
 
   return (

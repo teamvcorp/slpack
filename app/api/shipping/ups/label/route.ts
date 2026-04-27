@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
           ShipTo: {
             Name: shipment.customerName || 'Customer',
             Address: {
+              AddressLine: [shipment.destStreet || ''],
               City: shipment.destCity || '',
               StateProvinceCode: shipment.destState || '',
               PostalCode: String(shipment.destZip),

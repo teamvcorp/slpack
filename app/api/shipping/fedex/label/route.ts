@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
               phoneNumber: '5555555555',
             },
             address: {
-              streetLines: [''],
+              streetLines: [shipment.destStreet || ''],
               city: shipment.destCity || '',
               stateOrProvinceCode: shipment.destState || '',
               postalCode: String(shipment.destZip),

@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     // Lazy-load the Stripe SDK — avoids hard build errors before the package is installed
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2025-04-30.basil',
+      apiVersion: '2025-02-24.acacia',
     });
 
     const amountCents = Math.round(Number(amountUSD) * 100);

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "bac2f8e4-8bff-42bc-ba70-355d3d1ccc4b",
+    "timestamp": "2026-04-27T17:30:53.061Z",
+    "carrier": "ups",
+    "serviceName": "UPS 3 Day Select",
+    "originZip": "50588",
+    "destZip": "50588",
+    "destCity": "Storm Lake",
+    "destState": "IA",
+    "weightLbs": 2,
+    "shippingUSD": 34.65,
+    "insuranceUSD": 50,
+    "totalUSD": 84.65,
+    "trackingNumber": "PENDING",
+    "labelBase64": null,
+    "customerName": "Robert Anthony Von Der Becke",
+    "customerEmail": "Admin@thevacorp.com"
+  }
+]
