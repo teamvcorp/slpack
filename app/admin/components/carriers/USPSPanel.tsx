@@ -6,9 +6,10 @@ interface Props {
   result: CarrierResult;
   onSelectRate: (rate: ShippingRate) => void;
   selectedRateCode: string | null;
+  retailMode?: boolean;
 }
 
-export default function USPSPanel({ result, onSelectRate, selectedRateCode }: Props) {
+export default function USPSPanel({ result, onSelectRate, selectedRateCode, retailMode }: Props) {
   const { loading, error, rates, lastFetched } = result;
 
   return (
@@ -65,7 +66,7 @@ export default function USPSPanel({ result, onSelectRate, selectedRateCode }: Pr
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-navy">{rate.serviceName}</span>
                       <span className="text-base font-bold text-[#004B87]">
-                        ${rate.totalChargeUSD.toFixed(2)}
+                        ${(retailMode ? Math.round(rate.totalChargeUSD * 1.3 * 100) / 100 : rate.totalChargeUSD).toFixed(2)}
                       </span>
                     </div>
                     {(rate.estimatedDays || rate.deliveryDate) && (

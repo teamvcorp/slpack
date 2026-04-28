@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    const validateRes = await fetch(`${BASE}/api/addressvalidation/v2/3`, {
+    const validateRes = await fetch(`${BASE}/api/addressvalidation/v2/${requestOption}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

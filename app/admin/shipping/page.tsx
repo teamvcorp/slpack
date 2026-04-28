@@ -57,6 +57,9 @@ export default function ShippingComparisonPage() {
   const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
   const [formKey, setFormKey] = useState(0);
+  const [retailMode, setRetailMode] = useState(false);
+
+  const RETAIL_MULTIPLIER = 1.3;
 
   const markLoading = useCallback((carrier: CarrierKey) => {
     setResults((prev) => ({
@@ -125,7 +128,10 @@ export default function ShippingComparisonPage() {
 
   function handleSelectRate(carrier: CarrierKey, rate: ShippingRate) {
     if (!currentShipment) return;
-    setPreviewCarrier({ carrier, rate });
+    const chargeRate = retailMode
+      ? { ...rate, totalChargeUSD: Math.round(rate.totalChargeUSD * RETAIL_MULTIPLIER * 100) / 100 }
+      : rate;
+    setPreviewCarrier({ carrier, rate: chargeRate });
     setModalStep('carrier-detail');
   }
 
@@ -181,11 +187,25 @@ export default function ShippingComparisonPage() {
   return (
     <div>
       {/* Page heading */}
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-navy">Shipping Rate Comparison</h1>
-        <p className="mt-1 text-sm text-navy/50">
-          Add one or more packages to the cart, then checkout with card or cash in a single transaction.
-        </p>
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-navy">Shipping Rate Comparison</h1>
+          <p className="mt-1 text-sm text-navy/50">
+            Add one or more packages to the cart, then checkout with card or cash in a single transaction.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setRetailMode((v) => !v)}
+          className={`mt-1 flex shrink-0 items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold transition-all ${
+            retailMode
+              ? 'border-green-600 bg-green-600 text-white shadow-sm'
+              : 'border-navy/20 bg-white text-navy/60 hover:border-navy/40'
+          }`}
+        >
+          <span className={`h-2 w-2 rounded-full ${retailMode ? 'bg-white' : 'bg-navy/30'}`} />
+          {retailMode ? 'Retail +30%' : 'Cost Price'}
+        </button>
       </div>
 
       {/* Shipment form */}
@@ -197,21 +217,25 @@ export default function ShippingComparisonPage() {
           result={results.fedex}
           onSelectRate={(r) => handleSelectRate('fedex', r)}
           selectedRateCode={null}
+          retailMode={retailMode}
         />
         <UPSPanel
           result={results.ups}
           onSelectRate={(r) => handleSelectRate('ups', r)}
           selectedRateCode={null}
+          retailMode={retailMode}
         />
         <USPSPanel
           result={results.usps}
           onSelectRate={(r) => handleSelectRate('usps', r)}
           selectedRateCode={null}
+          retailMode={retailMode}
         />
         <DHLPanel
           result={results.dhl}
           onSelectRate={(r) => handleSelectRate('dhl', r)}
           selectedRateCode={null}
+          retailMode={retailMode}
         />
       </div>
 
