@@ -73,8 +73,18 @@ export async function POST(req: NextRequest) {
 
     if (!rateRes.ok) {
       const body = await rateRes.text();
+      let detail = body;
+      try {
+        const parsed = JSON.parse(body);
+        const msg =
+          parsed?.apiError?.message ??
+          parsed?.errors?.[0]?.message ??
+          parsed?.message ??
+          null;
+        if (msg) detail = msg;
+      } catch { /* keep raw body */ }
       return NextResponse.json(
-        { error: `USPS rate error (${rateRes.status})`, details: body },
+        { error: `USPS rate error (${rateRes.status}): ${detail}` },
         { status: rateRes.status }
       );
     }

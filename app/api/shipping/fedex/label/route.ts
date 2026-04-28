@@ -129,8 +129,17 @@ export async function POST(req: NextRequest) {
 
     if (!shipRes.ok) {
       const body = await shipRes.text();
+      let detail = body;
+      try {
+        const parsed = JSON.parse(body);
+        const msg =
+          parsed?.errors?.[0]?.message ??
+          parsed?.output?.alerts?.[0]?.message ??
+          null;
+        if (msg) detail = msg;
+      } catch { /* keep raw body */ }
       return NextResponse.json(
-        { error: `FedEx ship error (${shipRes.status})`, details: body },
+        { error: `FedEx ship error (${shipRes.status}): ${detail}` },
         { status: shipRes.status }
       );
     }
