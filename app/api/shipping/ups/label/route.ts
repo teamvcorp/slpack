@@ -105,16 +105,17 @@ export async function POST(req: NextRequest) {
             },
           },
           Service: { Code: serviceCode ?? '03', Description: 'Service' },
-          Package: {
-            PackagingType: { Code: '02', Description: 'Package' },
-            Dimensions: packageDims,
-            PackageWeight: packageWeight,
-            ...packageInsurance,
-          },
+          Package: [
+            {
+              Packaging: { Code: '02' },
+              Dimensions: packageDims,
+              PackageWeight: packageWeight,
+              ...packageInsurance,
+            },
+          ],
         },
         LabelSpecification: {
-          LabelImageFormat: { Code: 'PNG', Description: 'PNG' },
-          HTTPUserAgent: 'Mozilla/4.5',
+          LabelImageFormat: { Code: 'GIF', Description: 'GIF' },
         },
       },
     };
@@ -130,8 +131,18 @@ export async function POST(req: NextRequest) {
 
     if (!labelRes.ok) {
       const body = await labelRes.text();
+      let detail = body;
+      try {
+        const parsed = JSON.parse(body);
+        const msg =
+          parsed?.response?.errors?.[0]?.message ??
+          parsed?.Fault?.detail?.Errors?.ErrorDetail?.PrimaryErrorCode?.Description ??
+          null;
+        if (msg) detail = msg;
+      } catch { /* keep raw body */ }
+      console.error('[UPS label] error response:', body);
       return NextResponse.json(
-        { error: `UPS label error (${labelRes.status})`, details: body },
+        { error: `UPS label error (${labelRes.status}): ${detail}` },
         { status: labelRes.status }
       );
     }
@@ -140,10 +151,17 @@ export async function POST(req: NextRequest) {
     const shipResponse = data?.ShipmentResponse?.ShipmentResults;
     const trackingNumber: string =
       shipResponse?.ShipmentIdentificationNumber ?? 'PENDING';
-    const labelBase64: string | null =
-      shipResponse?.PackageResults?.ShippingLabel?.GraphicImage ?? null;
 
-    return NextResponse.json({ trackingNumber, labelBase64 });
+    // PackageResults may be array or single object
+    const pkgResults = Array.isArray(shipResponse?.PackageResults)
+      ? shipResponse.PackageResults[0]
+      : shipResponse?.PackageResults;
+    const labelBase64: string | null =
+      pkgResults?.ShippingLabel?.GraphicImage ?? null;
+
+    const labelMimeType = labelBase64 ? 'image/gif' : null;
+
+    return NextResponse.json({ trackingNumber, labelBase64, labelMimeType });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

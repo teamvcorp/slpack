@@ -94,8 +94,8 @@ export async function POST(req: NextRequest) {
           },
         },
         labelSpecification: {
-          imageType: 'PNG',
-          labelStockType: 'PAPER_85X11_TOP_HALF_LABEL',
+          imageType: 'PDF',
+          labelStockType: 'PAPER_LETTER',
         },
         requestedPackageLineItems: [
           {
@@ -153,11 +153,16 @@ export async function POST(req: NextRequest) {
       completedShipment?.completedPackageDetails?.[0]?.trackingIds?.[0]?.trackingNumber ??
       'PENDING';
 
-    // Extract base64 label image
+    // Extract base64 label — FedEx returns it under pieceResponses[0].packageDocuments
+    const pkgDetails = completedShipment?.completedPackageDetails?.[0];
     const labelBase64: string | null =
-      completedShipment?.completedPackageDetails?.[0]?.label?.encodedLabel ?? null;
+      completedShipment?.pieceResponses?.[0]?.packageDocuments?.find(
+        (d: Record<string, unknown>) => d.contentType === 'LABEL'
+      )?.encodedLabel ??
+      pkgDetails?.label?.encodedLabel ??
+      null;
 
-    return NextResponse.json({ trackingNumber, labelBase64 });
+    return NextResponse.json({ trackingNumber, labelBase64, labelMimeType: 'application/pdf' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
