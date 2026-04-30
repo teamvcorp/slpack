@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUspsToken, BASE } from '@/lib/uspsToken';
 
-const MAIL_CLASS_NAMES: Record<string, string> = {
-  PRIORITY_MAIL_EXPRESS: 'Priority Mail Express',
-  PRIORITY_MAIL: 'Priority Mail',
-  FIRST_CLASS_PACKAGE_SERVICES: 'First-Class Package',
-  PARCEL_SELECT: 'Parcel Select Ground',
-  PARCEL_SELECT_LIGHTWEIGHT: 'Parcel Select Lightweight',
-  MEDIA_MAIL: 'Media Mail',
-  LIBRARY_MAIL: 'Library Mail',
-  BOUND_PRINTED_MATTER: 'Bound Printed Matter',
-};
+// USPS Prices v3 does not accept 'ALL' — query each class individually.
+// Note: the API enum uses FIRST-CLASS_PACKAGE_SERVICE (hyphen, not underscore).
+const MAIL_CLASSES: { code: string; name: string }[] = [
+  { code: 'PRIORITY_MAIL_EXPRESS',        name: 'Priority Mail Express' },
+  { code: 'PRIORITY_MAIL',                name: 'Priority Mail' },
+  { code: 'FIRST-CLASS_PACKAGE_SERVICE',  name: 'First-Class Package Service' },
+  { code: 'USPS_GROUND_ADVANTAGE',        name: 'USPS Ground Advantage' },
+  { code: 'PARCEL_SELECT',                name: 'Parcel Select Ground' },
+  { code: 'PARCEL_SELECT_LIGHTWEIGHT',    name: 'Parcel Select Lightweight' },
+  { code: 'MEDIA_MAIL',                   name: 'Media Mail' },
+  { code: 'LIBRARY_MAIL',                 name: 'Library Mail' },
+  { code: 'BOUND_PRINTED_MATTER',         name: 'Bound Printed Matter' },
+];
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const token = await getUspsToken();
 
-    const payload = {
+    const basePayload = {
       originZIPCode: String(originZip),
       destinationZIPCode: String(destZip),
       weight: Number(weightLbs),
@@ -36,53 +39,47 @@ export async function POST(req: NextRequest) {
       width: Number(widthIn),
       height: Number(heightIn),
       girth: 0,
-      mailClass: 'ALL',
       processingCategory: 'MACHINABLE',
       destinationEntryFacilityType: 'NONE',
       rateIndicator: 'SP',
       priceType: 'RETAIL',
     };
 
-    const rateRes = await fetch(`${BASE}/prices/v3/base-rates/search`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    // Query each mail class in parallel; skip classes that return an error.
+    const results = await Promise.allSettled(
+      MAIL_CLASSES.map(({ code, name }) =>
+        fetch(`${BASE}/prices/v3/base-rates/search`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ...basePayload, mailClass: code }),
+        }).then(async (res) => {
+          if (!res.ok) return null; // service unavailable for this class/weight combo
+          const data = await res.json();
+          const pricePoints: Record<string, unknown>[] = data?.pricePoints ?? [];
+          // Take the lowest retail price for this mail class.
+          if (pricePoints.length === 0) return null;
+          const best = pricePoints.reduce((a, b) =>
+            parseFloat(String(a.price ?? '9999')) <= parseFloat(String(b.price ?? '9999')) ? a : b
+          );
+          return {
+            serviceCode: code,
+            serviceName: name,
+            totalChargeUSD: parseFloat(String(best.price ?? '0')),
+            estimatedDays: best.commitmentDays ? parseInt(String(best.commitmentDays)) : null,
+            deliveryDate: best.commitmentDate ? String(best.commitmentDate) : null,
+          };
+        })
+      )
+    );
 
-    if (!rateRes.ok) {
-      const body = await rateRes.text();
-      let detail = body;
-      try {
-        const parsed = JSON.parse(body);
-        const msg =
-          parsed?.apiError?.message ??
-          parsed?.errors?.[0]?.message ??
-          parsed?.message ??
-          null;
-        if (msg) detail = msg;
-      } catch { /* keep raw body */ }
-      return NextResponse.json(
-        { error: `USPS rate error (${rateRes.status}): ${detail}` },
-        { status: rateRes.status }
-      );
-    }
-
-    const data = await rateRes.json();
-    const pricePoints: Record<string, unknown>[] = data?.pricePoints ?? [];
-
-    const rates = pricePoints.map((p) => {
-      const mailClass = String(p.mailClass ?? '');
-      return {
-        serviceCode: mailClass,
-        serviceName: MAIL_CLASS_NAMES[mailClass] ?? mailClass.replace(/_/g, ' '),
-        totalChargeUSD: parseFloat(String(p.price ?? '0')),
-        estimatedDays: p.commitmentDays ? parseInt(String(p.commitmentDays)) : null,
-        deliveryDate: p.commitmentDate ? String(p.commitmentDate) : null,
-      };
-    });
+    const rates = results
+      .filter((r): r is PromiseFulfilledResult<NonNullable<Awaited<ReturnType<typeof fetch>>>> =>
+        r.status === 'fulfilled' && r.value !== null
+      )
+      .map((r) => r.value);
 
     return NextResponse.json({ rates });
   } catch (err: unknown) {
