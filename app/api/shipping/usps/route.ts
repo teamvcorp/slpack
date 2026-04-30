@@ -3,17 +3,18 @@ import { getUspsToken, BASE } from '@/lib/uspsToken';
 
 // USPS Prices v3 does not accept 'ALL' — query each class individually.
 // Note: the API enum uses FIRST-CLASS_PACKAGE_SERVICE (hyphen, not underscore).
-// processingCategory must match each class — Express/PM/Media/Library/BPM use NON_PRESORTED.
+// processingCategory valid values: LETTERS, FLATS, MACHINABLE, IRREGULAR, NON_MACHINABLE, NONSTANDARD
+// All parcel/package mail classes use MACHINABLE.
 const MAIL_CLASSES: { code: string; name: string; processingCategory: string }[] = [
-  { code: 'PRIORITY_MAIL_EXPRESS',        name: 'Priority Mail Express',         processingCategory: 'NON_PRESORTED' },
-  { code: 'PRIORITY_MAIL',                name: 'Priority Mail',                 processingCategory: 'NON_PRESORTED' },
+  { code: 'PRIORITY_MAIL_EXPRESS',        name: 'Priority Mail Express',         processingCategory: 'MACHINABLE' },
+  { code: 'PRIORITY_MAIL',                name: 'Priority Mail',                 processingCategory: 'MACHINABLE' },
   { code: 'FIRST-CLASS_PACKAGE_SERVICE',  name: 'First-Class Package Service',   processingCategory: 'MACHINABLE' },
   { code: 'USPS_GROUND_ADVANTAGE',        name: 'USPS Ground Advantage',         processingCategory: 'MACHINABLE' },
   { code: 'PARCEL_SELECT',                name: 'Parcel Select Ground',          processingCategory: 'MACHINABLE' },
   { code: 'PARCEL_SELECT_LIGHTWEIGHT',    name: 'Parcel Select Lightweight',     processingCategory: 'MACHINABLE' },
-  { code: 'MEDIA_MAIL',                   name: 'Media Mail',                    processingCategory: 'NON_PRESORTED' },
-  { code: 'LIBRARY_MAIL',                 name: 'Library Mail',                  processingCategory: 'NON_PRESORTED' },
-  { code: 'BOUND_PRINTED_MATTER',         name: 'Bound Printed Matter',          processingCategory: 'NON_PRESORTED' },
+  { code: 'MEDIA_MAIL',                   name: 'Media Mail',                    processingCategory: 'MACHINABLE' },
+  { code: 'LIBRARY_MAIL',                 name: 'Library Mail',                  processingCategory: 'MACHINABLE' },
+  { code: 'BOUND_PRINTED_MATTER',         name: 'Bound Printed Matter',          processingCategory: 'MACHINABLE' },
 ];
 
 export async function POST(req: NextRequest) {
