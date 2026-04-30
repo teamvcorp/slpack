@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const BASE = 'https://api.usps.com';
+import { getUspsToken } from '@/lib/uspsToken';
 
 const MAIL_CLASS_NAMES: Record<string, string> = {
   PRIORITY_MAIL_EXPRESS: 'Priority Mail Express',
@@ -12,24 +11,6 @@ const MAIL_CLASS_NAMES: Record<string, string> = {
   LIBRARY_MAIL: 'Library Mail',
   BOUND_PRINTED_MATTER: 'Bound Printed Matter',
 };
-
-async function getToken(): Promise<string> {
-  const res = await fetch(`${BASE}/oauth2/v3/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: process.env.USPS_CLIENT_ID!,
-      client_secret: process.env.USPS_CLIENT_SECRET!,
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`USPS auth failed (${res.status}): ${body}`);
-  }
-  const data = await res.json();
-  return data.access_token as string;
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,7 +26,7 @@ export async function POST(req: NextRequest) {
       weightLbs, lengthIn, widthIn, heightIn,
     } = await req.json();
 
-    const token = await getToken();
+    const token = await getUspsToken();
 
     const payload = {
       originZIPCode: String(originZip),

@@ -68,7 +68,33 @@ export async function POST(req: NextRequest) {
 
     await appendLog(entry);
 
-    // ── 3. Send receipt email via Resend ─────────────────────────────────────
+    // ── 3. Auto-save customer to address book ────────────────────────────────
+    if (shipment.customerName || shipment.customerPhone || shipment.customerEmail) {
+      try {
+        await fetch(
+          `${process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'}/api/address-book`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: shipment.customerName ?? '',
+              phone: shipment.customerPhone ?? '',
+              email: shipment.customerEmail ?? '',
+              street: shipment.destStreet ?? '',
+              city: shipment.destCity ?? '',
+              state: shipment.destState ?? '',
+              zip: shipment.destZip ?? '',
+              country: shipment.destCountry ?? 'US',
+              lastShipped: new Date().toISOString(),
+            }),
+          }
+        );
+      } catch {
+        // non-fatal — address book save failure should not block the shipment
+      }
+    }
+
+    // ── 4. Send receipt email via Resend ─────────────────────────────────────
     if (shipment.customerEmail && process.env.RESEND_API_KEY) {
       try {
         const { Resend } = await import('resend');

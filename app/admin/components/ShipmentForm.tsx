@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { ShipmentInput } from '../types/shipping';
 
 interface Props {
@@ -13,6 +13,19 @@ interface AddressResult {
   status: string;
   suggested: { streetLine: string; city: string; state: string; zip: string; country: string } | null;
   messages: string[];
+}
+
+interface AddressBookEntry {
+  name: string;
+  phone: string;
+  email: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  lastShipped: string;
+  shipCount: number;
 }
 
 const DEFAULTS: ShipmentInput = {
@@ -52,6 +65,55 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
   const [zipLookup, setZipLookup] = useState(false);
   const [addrResult, setAddrResult] = useState<AddressResult | null>(null);
   const [addrError, setAddrError] = useState<string | null>(null);
+
+  // Address book search
+  const [abSuggestions, setAbSuggestions] = useState<AddressBookEntry[]>([]);
+  const [abOpen, setAbOpen] = useState(false);
+  const abTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (abRef.current && !abRef.current.contains(e.target as Node)) {
+        setAbOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  async function searchAddressBook(q: string) {
+    if (q.length < 2) { setAbSuggestions([]); setAbOpen(false); return; }
+    try {
+      const res = await fetch(`/api/address-book?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      setAbSuggestions(data.results ?? []);
+      setAbOpen((data.results ?? []).length > 0);
+    } catch { setAbSuggestions([]); }
+  }
+
+  function handleNameChange(value: string) {
+    set('customerName', value);
+    if (abTimeout.current) clearTimeout(abTimeout.current);
+    abTimeout.current = setTimeout(() => searchAddressBook(value), 250);
+  }
+
+  function applyAddressBook(entry: AddressBookEntry) {
+    setForm((prev) => ({
+      ...prev,
+      customerName: entry.name,
+      customerPhone: entry.phone,
+      customerEmail: entry.email,
+      destStreet: entry.street,
+      destCity: entry.city,
+      destState: entry.state,
+      destZip: entry.zip,
+      destCountry: entry.country || 'US',
+    }));
+    setAbSuggestions([]);
+    setAbOpen(false);
+    setAddrResult(null);
+  }
 
   function set<K extends keyof ShipmentInput>(key: K, value: ShipmentInput[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -391,15 +453,41 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
 
       {/* ── Row 3: Customer info ── */}
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div>
+        <div className="relative" ref={abRef}>
           <label className={lbl}>Customer Name</label>
           <input
             className={input}
             value={form.customerName}
-            onChange={(e) => set('customerName', e.target.value)}
+            onChange={(e) => handleNameChange(e.target.value)}
+            onFocus={() => { if (abSuggestions.length > 0) setAbOpen(true); }}
             maxLength={100}
             placeholder="Jane Smith"
+            autoComplete="off"
           />
+          {abOpen && abSuggestions.length > 0 && (
+            <div className="absolute z-20 mt-1 w-full rounded-lg border border-navy/10 bg-white shadow-lg">
+              {abSuggestions.map((entry, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onMouseDown={() => applyAddressBook(entry)}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-cream first:rounded-t-lg last:rounded-b-lg"
+                >
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs font-bold text-blue">
+                    {entry.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-navy">{entry.name}</p>
+                    <p className="truncate text-[11px] text-navy/50">
+                      {[entry.city, entry.state, entry.zip].filter(Boolean).join(', ')}
+                      {entry.phone ? ` · ${entry.phone}` : ''}
+                      {entry.shipCount > 1 ? ` · ${entry.shipCount} shipments` : ''}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <label className={lbl}>Customer Phone</label>
