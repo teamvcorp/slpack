@@ -44,9 +44,9 @@ export async function POST(req: NextRequest) {
       originZIPCode: String(originZip),
       destinationZIPCode: String(destZip),
       weight: Number(weightLbs),
-      length: Number(lengthIn),
-      width: Number(widthIn),
-      height: Number(heightIn),
+      length: Number(lengthIn) || 1,
+      width: Number(widthIn) || 1,
+      height: Number(heightIn) || 1,
       girth: 0,
       destinationEntryFacilityType: 'NONE',
       rateIndicator: 'SP',
@@ -64,21 +64,39 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({ ...basePayload, mailClass: code, processingCategory }),
         }).then(async (res) => {
+          const body = await res.text();
           if (!res.ok) {
-            const body = await res.text();
-            console.error(`USPS ${code} -> ${res.status}: ${body}`);
+            // 400 with code 030002 = no SKU for this weight/class combo — expected, not an error
+            if (body.includes('030002')) {
+              console.warn(`USPS ${code} -> no rate available (030002)`);
+            } else {
+              console.error(`USPS ${code} -> ${res.status}: ${body}`);
+            }
             return null;
           }
-          const data = await res.json();
-          const pricePoints: Record<string, unknown>[] = data?.pricePoints ?? [];
-          if (pricePoints.length === 0) return null;
+          let data: Record<string, unknown>;
+          try { data = JSON.parse(body); } catch { return null; }
+          // Log first successful response to verify structure
+          if (code === 'PRIORITY_MAIL' || code === 'USPS_GROUND_ADVANTAGE') {
+            console.log(`USPS ${code} response keys:`, Object.keys(data), '| sample:', body.substring(0, 300));
+          }
+          const pricePoints: Record<string, unknown>[] =
+            (data?.pricePoints as Record<string, unknown>[] | undefined) ??
+            (data?.rates as Record<string, unknown>[] | undefined) ??
+            [];
+          if (pricePoints.length === 0) {
+            console.warn(`USPS ${code} -> 200 OK but no pricePoints. Keys: ${Object.keys(data).join(', ')}`);
+            return null;
+          }
           const best = pricePoints.reduce((a, b) =>
-            parseFloat(String(a.price ?? '9999')) <= parseFloat(String(b.price ?? '9999')) ? a : b
+            parseFloat(String(a.price ?? a.totalBasePrice ?? '9999')) <=
+            parseFloat(String(b.price ?? b.totalBasePrice ?? '9999')) ? a : b
           );
+          const price = parseFloat(String(best.price ?? best.totalBasePrice ?? '0'));
           return {
             serviceCode: code,
             serviceName: name,
-            totalChargeUSD: parseFloat(String(best.price ?? '0')),
+            totalChargeUSD: price,
             estimatedDays: best.commitmentDays ? parseInt(String(best.commitmentDays)) : null,
             deliveryDate: best.commitmentDate ? String(best.commitmentDate) : null,
           };
