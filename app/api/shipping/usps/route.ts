@@ -29,6 +29,13 @@ export async function POST(req: NextRequest) {
       weightLbs, lengthIn, widthIn, heightIn,
     } = await req.json();
 
+    if (!originZip || !destZip || !weightLbs) {
+      return NextResponse.json(
+        { error: 'Missing required fields: originZip, destZip, weightLbs' },
+        { status: 400 }
+      );
+    }
+
     const token = await getUspsToken();
 
     const basePayload = {
@@ -45,7 +52,7 @@ export async function POST(req: NextRequest) {
       priceType: 'RETAIL',
     };
 
-    // Query each mail class in parallel; skip classes that return an error.
+    // Query each mail class in parallel; collect errors for diagnostics.
     const results = await Promise.allSettled(
       MAIL_CLASSES.map(({ code, name }) =>
         fetch(`${BASE}/prices/v3/base-rates/search`, {
@@ -56,10 +63,13 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({ ...basePayload, mailClass: code }),
         }).then(async (res) => {
-          if (!res.ok) return null; // service unavailable for this class/weight combo
+          if (!res.ok) {
+            const body = await res.text();
+            console.error(`USPS ${code} -> ${res.status}: ${body}`);
+            return null;
+          }
           const data = await res.json();
           const pricePoints: Record<string, unknown>[] = data?.pricePoints ?? [];
-          // Take the lowest retail price for this mail class.
           if (pricePoints.length === 0) return null;
           const best = pricePoints.reduce((a, b) =>
             parseFloat(String(a.price ?? '9999')) <= parseFloat(String(b.price ?? '9999')) ? a : b
