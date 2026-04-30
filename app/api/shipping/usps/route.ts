@@ -75,8 +75,12 @@ export async function POST(req: NextRequest) {
       )
     );
 
+    type RateEntry = {
+      serviceCode: string; serviceName: string; totalChargeUSD: number;
+      estimatedDays: number | null; deliveryDate: string | null;
+    };
     const rates = results
-      .filter((r): r is PromiseFulfilledResult<NonNullable<Awaited<ReturnType<typeof fetch>>>> =>
+      .filter((r): r is PromiseFulfilledResult<RateEntry> =>
         r.status === 'fulfilled' && r.value !== null
       )
       .map((r) => r.value);
