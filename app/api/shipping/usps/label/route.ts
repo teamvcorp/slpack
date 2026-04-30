@@ -6,10 +6,57 @@ export async function POST(req: NextRequest) {
     if (!process.env.USPS_CLIENT_ID || !process.env.USPS_CLIENT_SECRET) {
       return NextResponse.json({ error: 'USPS credentials not configured' }, { status: 503 });
     }
+    if (!process.env.USPS_CRID || !process.env.USPS_MID || !process.env.USPS_EPS_ACCOUNT_NUMBER) {
+      return NextResponse.json(
+        { error: 'USPS_CRID, USPS_MID, and USPS_EPS_ACCOUNT_NUMBER are required for label printing' },
+        { status: 503 }
+      );
+    }
 
     const { shipment, serviceCode, insurance } = await req.json();
 
-    const token = await getUspsToken();
+    const token = await getUspsToken('labels');
+
+    // Get payment authorization token (required for Labels API)
+    // PC Postage accounts use the PC Postage flow: LABEL_OWNER only, no PAYER role
+    const pcPostageFlow = !process.env.USPS_EPS_ACCOUNT_NUMBER || process.env.USPS_PC_POSTAGE === 'true';
+    const payAuthRoles: object[] = [
+      {
+        roleName: 'LABEL_OWNER',
+        CRID: process.env.USPS_CRID,
+        MID: process.env.USPS_MID,
+        manifestMID: process.env.USPS_MANIFEST_MID ?? process.env.USPS_MID,
+      },
+    ];
+    if (!pcPostageFlow) {
+      payAuthRoles.push({
+        roleName: 'PAYER',
+        CRID: process.env.USPS_CRID,
+        accountType: process.env.USPS_ACCOUNT_TYPE ?? 'EPS',
+        accountNumber: process.env.USPS_EPS_ACCOUNT_NUMBER,
+      });
+    }
+    const payAuthPayload = { roles: payAuthRoles };
+    console.log('USPS payment auth payload:', JSON.stringify(payAuthPayload));
+
+    const payAuthRes = await fetch(`${BASE}/payments/v3/payment-authorization`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payAuthPayload),
+    });
+    if (!payAuthRes.ok) {
+      const body = await payAuthRes.text();
+      console.error(`USPS payment auth error ${payAuthRes.status}: ${body}`);
+      return NextResponse.json(
+        { error: `USPS payment auth error (${payAuthRes.status})`, details: body },
+        { status: payAuthRes.status }
+      );
+    }
+    const payAuthData = await payAuthRes.json();
+    const paymentToken: string = payAuthData.paymentAuthorizationToken;
 
     // Build insurance extra service if enabled
     const extraServices: { extraService: number }[] = [];
@@ -70,6 +117,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
+        'X-Payment-Authorization-Token': paymentToken,
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
@@ -78,6 +126,7 @@ export async function POST(req: NextRequest) {
 
     if (!labelRes.ok) {
       const body = await labelRes.text();
+      console.error(`USPS label error ${labelRes.status}: ${body}`);
       return NextResponse.json(
         { error: `USPS label error (${labelRes.status})`, details: body },
         { status: labelRes.status }

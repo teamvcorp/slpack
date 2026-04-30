@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
         labelBase64 = labelData.labelBase64 ?? null;
         labelMimeType = labelData.labelMimeType ?? null;
       } else {
-        labelError = labelData.error ?? `Label API error (${labelRes.status})`;
+        const detail = labelData.details ? ` — ${labelData.details}` : '';
+        labelError = (labelData.error ?? `Label API error (${labelRes.status})`) + detail;
       }
     } catch (err: unknown) {
       labelError = err instanceof Error ? err.message : 'Label generation failed';
