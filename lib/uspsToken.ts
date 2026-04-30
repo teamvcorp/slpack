@@ -1,4 +1,4 @@
-const BASE = 'https://api.usps.com';
+export const BASE = 'https://api.usps.com';
 
 // USPS OAuth tokens are valid for 8 hours (28 800 s).
 // Cache the token in module scope so the same warm server instance reuses it.

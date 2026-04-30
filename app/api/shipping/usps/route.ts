@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUspsToken } from '@/lib/uspsToken';
+import { getUspsToken, BASE } from '@/lib/uspsToken';
 
 const MAIL_CLASS_NAMES: Record<string, string> = {
   PRIORITY_MAIL_EXPRESS: 'Priority Mail Express',
