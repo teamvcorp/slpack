@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
       shipment,
       shippingUSD,
       insuranceUSD,
+      packingFeeUSD,
       totalUSD,
       insurance,
       paymentMethod,
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
       weightLbs: shipment.weightLbs,
       shippingUSD: Number(shippingUSD),
       insuranceUSD: Number(insuranceUSD),
+      packingFeeUSD: Number(packingFeeUSD ?? 0),
       totalUSD: Number(totalUSD),
       trackingNumber,
       labelBase64,
@@ -121,6 +123,7 @@ export async function POST(req: NextRequest) {
             weightLbs: shipment.weightLbs,
             shippingUSD: Number(shippingUSD),
             insuranceUSD: Number(insuranceUSD),
+            packingFeeUSD: Number(packingFeeUSD ?? 0),
             totalUSD: Number(totalUSD),
             declaredValueUSD: insurance?.valueUSD ?? 0,
             shopName,
@@ -150,6 +153,7 @@ interface ReceiptParams {
   weightLbs: number;
   shippingUSD: number;
   insuranceUSD: number;
+  packingFeeUSD: number;
   totalUSD: number;
   declaredValueUSD: number;
   shopName: string;
@@ -159,6 +163,10 @@ function buildReceiptHtml(p: ReceiptParams): string {
   const insRow =
     p.insuranceUSD > 0
       ? `<tr><td style="padding:4px 0;color:#666;">Insurance (declared $${p.declaredValueUSD.toFixed(2)})</td><td style="padding:4px 0;text-align:right;">$${p.insuranceUSD.toFixed(2)}</td></tr>`
+      : '';
+  const packRow =
+    p.packingFeeUSD > 0
+      ? `<tr><td style="padding:4px 0;color:#666;">Packing fee</td><td style="padding:4px 0;text-align:right;">$${p.packingFeeUSD.toFixed(2)}</td></tr>`
       : '';
 
   return `<!DOCTYPE html>
@@ -189,6 +197,7 @@ function buildReceiptHtml(p: ReceiptParams): string {
         <tr><td style="padding:4px 0;color:#666;">Weight</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${p.weightLbs} lbs</td></tr>
         <tr style="border-top:1px solid #eee;"><td style="padding:8px 0 4px;color:#666;">Shipping</td><td style="padding:8px 0 4px;text-align:right;">$${p.shippingUSD.toFixed(2)}</td></tr>
         ${insRow}
+        ${packRow}
         <tr style="border-top:2px solid #1a2744;"><td style="padding:8px 0 0;font-weight:bold;color:#1a2744;">Total Charged</td><td style="padding:8px 0 0;text-align:right;font-weight:bold;font-size:18px;color:#1a2744;">$${p.totalUSD.toFixed(2)}</td></tr>
       </table>
 

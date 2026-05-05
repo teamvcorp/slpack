@@ -9,10 +9,10 @@ interface Props {
   onSuccess: (results: CartResult[], paymentMethod: 'card' | 'cash') => void;
 }
 
-async function submitItem(item: CartItem, paymentMethod: 'card' | 'cash'): Promise<CartResult> {
+async function submitItem(item: CartItem, paymentMethod: 'card' | 'cash', packingFeeUSD: number): Promise<CartResult> {
   const shippingUSD = item.rate.totalChargeUSD;
   const insuranceUSD = item.insurance?.premiumUSD ?? 0;
-  const totalUSD = shippingUSD + insuranceUSD;
+  const totalUSD = shippingUSD + insuranceUSD + packingFeeUSD;
 
   const res = await fetch('/api/shipping/submit', {
     method: 'POST',
@@ -24,6 +24,7 @@ async function submitItem(item: CartItem, paymentMethod: 'card' | 'cash'): Promi
       shipment: item.shipment,
       shippingUSD,
       insuranceUSD,
+      packingFeeUSD,
       totalUSD,
       insurance: item.insurance,
       paymentMethod,
@@ -63,6 +64,8 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
   const [cardReady, setCardReady] = useState(false);
   const [isCharging, setIsCharging] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('Processing…');
+  const [packingFeeInput, setPackingFeeInput] = useState('');
+  const packingFeeUSD = Math.max(0, Number.parseFloat(packingFeeInput) || 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stripeRef = useRef<any>(null);
@@ -72,7 +75,7 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
 
   const totalShipping = cart.reduce((s, i) => s + i.rate.totalChargeUSD, 0);
   const totalInsurance = cart.reduce((s, i) => s + (i.insurance?.premiumUSD ?? 0), 0);
-  const grandTotal = totalShipping + totalInsurance;
+  const grandTotal = totalShipping + totalInsurance + packingFeeUSD;
 
   // Customer info from first item
   const { customerName = '', customerEmail = '' } = cart[0]?.shipment ?? {};
@@ -114,7 +117,8 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
       const results: CartResult[] = [];
       for (let i = 0; i < cart.length; i++) {
         setProcessingMsg(`Processing package ${i + 1} of ${cart.length}…`);
-        results.push(await submitItem(cart[i], 'cash'));
+        // Apply packing fee to first item only so it isn't double-counted.
+        results.push(await submitItem(cart[i], 'cash', i === 0 ? packingFeeUSD : 0));
       }
       setStep('success');
       setTimeout(() => onSuccess(results, 'cash'), 1500);
@@ -191,7 +195,7 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
       const results: CartResult[] = [];
       for (let i = 0; i < cart.length; i++) {
         setProcessingMsg(`Generating label ${i + 1} of ${cart.length}…`);
-        results.push(await submitItem(cart[i], 'card'));
+        results.push(await submitItem(cart[i], 'card', i === 0 ? packingFeeUSD : 0));
       }
       setStep('success');
       setTimeout(() => onSuccess(results, 'card'), 1800);
@@ -282,9 +286,39 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
           </div>
 
           {/* Grand total */}
-          <div className="mt-3 flex items-center justify-between rounded-xl bg-navy/5 px-4 py-3">
-            <span className="text-sm font-semibold text-navy">Total</span>
-            <span className="text-2xl font-extrabold text-navy">${grandTotal.toFixed(2)}</span>
+          <div className="mt-3 space-y-2 rounded-xl bg-navy/5 px-4 py-3">
+            {/* Packing fee input */}
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="packingFee" className="text-sm text-navy/70">
+                Packing fee
+                <span className="ml-1 text-[11px] text-navy/40">(custom packaging, optional)</span>
+              </label>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-sm text-navy/40">$</span>
+                <input
+                  id="packingFee"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={packingFeeInput}
+                  onChange={(e) => setPackingFeeInput(e.target.value)}
+                  disabled={step !== 'review'}
+                  className="w-24 rounded-md border border-navy/20 bg-white py-1.5 pl-5 pr-2 text-right text-sm font-semibold text-navy focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </div>
+            </div>
+            {packingFeeUSD > 0 && (
+              <div className="flex items-center justify-between border-t border-navy/10 pt-2 text-xs text-navy/50">
+                <span>Shipping + insurance</span>
+                <span>${(totalShipping + totalInsurance).toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-navy">Total</span>
+              <span className="text-2xl font-extrabold text-navy">${grandTotal.toFixed(2)}</span>
+            </div>
           </div>
 
           {/* Customer info */}

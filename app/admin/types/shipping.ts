@@ -82,6 +82,7 @@ export interface ShipmentLogEntry {
   weightLbs: number;
   shippingUSD: number;
   insuranceUSD: number;
+  packingFeeUSD?: number;
   totalUSD: number;
   trackingNumber: string | null;
   labelBase64: string | null;
