@@ -6,9 +6,9 @@ export async function POST(req: NextRequest) {
     if (!process.env.USPS_CLIENT_ID || !process.env.USPS_CLIENT_SECRET) {
       return NextResponse.json({ error: 'USPS credentials not configured' }, { status: 503 });
     }
-    if (!process.env.USPS_CRID || !process.env.USPS_MID || !process.env.USPS_EPS_ACCOUNT_NUMBER) {
+    if (!process.env.USPS_CRID || !process.env.USPS_MID) {
       return NextResponse.json(
-        { error: 'USPS_CRID, USPS_MID, and USPS_EPS_ACCOUNT_NUMBER are required for label printing' },
+        { error: 'USPS_CRID and USPS_MID are required for label printing' },
         { status: 503 }
       );
     }
