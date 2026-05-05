@@ -22,6 +22,8 @@ export interface ShippingRate {
   totalChargeUSD: number;
   estimatedDays: number | null;
   deliveryDate: string | null;
+  /** True when package is 108–130" combined length+girth (oversized surcharge applies) */
+  oversized?: boolean;
 }
 
 export type CarrierKey = 'fedex' | 'ups' | 'usps' | 'dhl';

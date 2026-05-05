@@ -69,6 +69,11 @@ export default function USPSPanel({ result, onSelectRate, selectedRateCode, reta
                         ${(retailMode ? Math.round(rate.totalChargeUSD * 1.3 * 100) / 100 : rate.totalChargeUSD).toFixed(2)}
                       </span>
                     </div>
+                    {rate.oversized && (
+                      <p className="mt-0.5 text-[11px] font-medium text-amber-600">
+                        ⚠ Oversized surcharge applies (108–130")
+                      </p>
+                    )}
                     {(rate.estimatedDays || rate.deliveryDate) && (
                       <p className="mt-0.5 text-xs text-navy/40">
                         {rate.estimatedDays
