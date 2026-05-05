@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
 
     // Build insurance extra service if enabled (legacy flow)
     const extraServices: { extraService: number }[] = [];
-    if (insurance?.enabled && insurance?.valueUSD > 0) {
+    if (insurance?.enabled && (insurance?.valueUSD ?? 0) > 0) {
       extraServices.push({ extraService: 930 }); // 930 = Insurance (Retail)
     }
 
