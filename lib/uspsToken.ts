@@ -1,4 +1,9 @@
-export const BASE = 'https://api.usps.com';
+// Set USPS_SANDBOX=true to use the USPS test environment (apis-tem.usps.com).
+// Test CRIDs/MIDs/EPS accounts must be registered on the test environment separately.
+export const BASE =
+  process.env.USPS_SANDBOX === 'true'
+    ? 'https://apis-tem.usps.com'
+    : 'https://api.usps.com';
 
 // USPS OAuth tokens are valid for 8 hours (28 800 s).
 // USPS does not use scopes — one token covers all APIs.
