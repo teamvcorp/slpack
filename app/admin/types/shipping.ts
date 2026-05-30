@@ -128,3 +128,27 @@ export interface ErrorLogEntry {
   /** Stack trace — recorded in development only */
   stack?: string;
 }
+
+/** Stored in slpack.settlements — one entry per carrier invoice payment */
+export interface SettlementEntry {
+  id: string;
+  carrier: CarrierKey;
+  amountUSD: number;
+  paidAt: string;        // ISO
+  /** Invoice covers shipments after this timestamp (optional) */
+  periodStart?: string;  // ISO
+  /** Invoice covers shipments up to and including this timestamp.
+   *  Shipments newer than periodEnd remain "owed". When omitted, paidAt is used. */
+  periodEnd?: string;    // ISO
+  invoiceRef?: string;
+  note?: string;
+}
+
+/** One row in the balances API response */
+export interface CarrierBalance {
+  carrier: CarrierKey;
+  owedUSD: number;
+  shipmentCount: number;
+  oldestUnsettledAt: string | null;
+  lastSettlement: SettlementEntry | null;
+}

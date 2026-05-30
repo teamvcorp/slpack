@@ -6,6 +6,8 @@ import { usePathname, useRouter } from 'next/navigation';
 const NAV = [
   { label: 'Dashboard', href: '/admin' },
   { label: 'Shipping Compare', href: '/admin/shipping' },
+  { label: 'Log', href: '/admin/log' },
+  { label: 'Balances', href: '/admin/balances' },
 ];
 
 export default function AdminNav() {

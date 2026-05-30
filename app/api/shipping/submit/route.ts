@@ -113,8 +113,8 @@ export async function POST(req: NextRequest) {
         const shopName = 'Storm Lake Pack & Ship';
 
         await resend.emails.send({
-          fromrecipient{fromEmail}>`,
-          to: shipment.customerEmail,
+          from: `${shopName} <${fromEmail}>`,
+          to: recipientEmail,
           subject: `Your Shipping Receipt — ${carrierLabel} ${trackingNumber}`,
           html: buildReceiptHtml({
             customerName: shipment.customerName,
