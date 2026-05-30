@@ -107,6 +107,12 @@ export interface ShipmentLogEntry {
   /** Outcome of the carrier-side cancel attempt (success/failed/skipped/manual) */
   voidCarrierStatus?: 'success' | 'failed' | 'skipped' | 'manual';
   voidCarrierMessage?: string;
+  /** True once the carrier has actually scanned/accepted the package. Only
+   *  accepted shipments count toward carrier balances owed. */
+  accepted?: boolean;
+  acceptedAt?: string;       // ISO of first carrier scan
+  acceptanceCheckedAt?: string; // ISO of last tracking poll
+  acceptedSource?: 'tracking' | 'manual';
 }
 
 /** Stored in /api/shipping/errors — one entry per server-side API error */
@@ -151,4 +157,7 @@ export interface CarrierBalance {
   shipmentCount: number;
   oldestUnsettledAt: string | null;
   lastSettlement: SettlementEntry | null;
+  /** Unaccepted (label-only, not yet scanned) totals — informational, not owed */
+  pendingUSD: number;
+  pendingCount: number;
 }

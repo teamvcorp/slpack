@@ -46,3 +46,58 @@ export async function markShipmentVoided(
   );
   return res.matchedCount > 0;
 }
+
+/**
+ * Returns shipments that still need a tracking acceptance check.
+ * - Not voided, has a tracking number, not already accepted
+ * - Created within the last `lookbackDays` (default 30) — older labels are
+ *   effectively dead weight and unlikely to be tendered
+ * - Either never checked, or last checked more than `staleMinutes` ago
+ */
+export async function findShipmentsNeedingAcceptanceCheck(opts: {
+  limit?: number;
+  lookbackDays?: number;
+  staleMinutes?: number;
+} = {}): Promise<ShipmentLogEntry[]> {
+  await client.connect();
+  const limit = opts.limit ?? 50;
+  const lookbackDays = opts.lookbackDays ?? 30;
+  const staleMinutes = opts.staleMinutes ?? 240; // 4 hours
+  const sinceIso = new Date(Date.now() - lookbackDays * 86400000).toISOString();
+  const staleIso = new Date(Date.now() - staleMinutes * 60000).toISOString();
+  return col()
+    .find({
+      voided: { $ne: true },
+      accepted: { $ne: true },
+      trackingNumber: { $nin: [null, ''] },
+      timestamp: { $gte: sinceIso },
+      $or: [
+        { acceptanceCheckedAt: { $exists: false } },
+        { acceptanceCheckedAt: { $lt: staleIso } },
+      ],
+    })
+    .sort({ timestamp: -1 })
+    .limit(limit)
+    .toArray();
+}
+
+export async function markShipmentAcceptance(
+  id: string,
+  patch: {
+    accepted: boolean;
+    acceptedAt?: string;
+    acceptedSource?: 'tracking' | 'manual';
+  }
+): Promise<boolean> {
+  await client.connect();
+  const set: Record<string, unknown> = {
+    acceptanceCheckedAt: new Date().toISOString(),
+  };
+  if (patch.accepted) {
+    set.accepted = true;
+    set.acceptedAt = patch.acceptedAt ?? new Date().toISOString();
+    set.acceptedSource = patch.acceptedSource ?? 'tracking';
+  }
+  const res = await col().updateOne({ id }, { $set: set });
+  return res.matchedCount > 0;
+}

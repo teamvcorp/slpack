@@ -50,6 +50,7 @@ export default function ShipmentLogPage() {
   const [search, setSearch] = useState('');
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
   const [voidingId, setVoidingId] = useState<string | null>(null);
+  const [tenderingId, setTenderingId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const fetchLog = useCallback(async (p: Period) => {
@@ -88,6 +89,33 @@ export default function ShipmentLogPage() {
   const handlePrintLabel = useCallback((id: string) => {
     window.open(`/api/shipping/label/${encodeURIComponent(id)}`, '_blank', 'noopener');
   }, []);
+
+  const handleMarkTendered = useCallback(
+    async (id: string) => {
+      if (!window.confirm('Mark this shipment as tendered to the carrier?')) return;
+      setTenderingId(id);
+      setActionMessage(null);
+      try {
+        const res = await fetch('/api/shipping/tracking/mark-tendered', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        });
+        const body: { ok?: boolean; error?: string } = await res.json().catch(() => ({}));
+        if (!res.ok || !body.ok) {
+          setActionMessage(body.error ?? `Failed (HTTP ${res.status})`);
+          return;
+        }
+        setActionMessage('Marked as tendered.');
+        await fetchLog(period);
+      } catch (e) {
+        setActionMessage(e instanceof Error ? e.message : 'Failed');
+      } finally {
+        setTenderingId(null);
+      }
+    },
+    [fetchLog, period]
+  );
 
   const handleVoid = useCallback(
     async (id: string, trackingNumber: string | null) => {
@@ -276,6 +304,7 @@ export default function ShipmentLogPage() {
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Customer</th>
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Route</th>
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Tracking</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Status</th>
                       <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-navy/40">Total</th>
                       <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-navy/40">Actions</th>
                     </tr>
@@ -326,6 +355,22 @@ export default function ShipmentLogPage() {
                               </p>
                             )}
                           </td>
+                          <td className="px-4 py-3">
+                            {isVoided ? (
+                              <span className="inline-block rounded-full bg-red/10 px-2 py-0.5 text-[10px] font-bold uppercase text-red">Voided</span>
+                            ) : entry.accepted ? (
+                              <span
+                                className="inline-block rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-green-700"
+                                title={`Accepted ${entry.acceptedAt ? new Date(entry.acceptedAt).toLocaleString() : ''} via ${entry.acceptedSource ?? 'tracking'}`}
+                              >
+                                Accepted
+                              </span>
+                            ) : (
+                              <span className="inline-block rounded-full bg-tan/30 px-2 py-0.5 text-[10px] font-bold uppercase text-navy/70">
+                                Pending
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-right">
                             <p className={`font-bold ${isVoided ? 'text-navy/40 line-through' : 'text-navy'}`}>${entry.totalUSD.toFixed(2)}</p>
                             {entry.insuranceUSD > 0 && (
@@ -343,6 +388,17 @@ export default function ShipmentLogPage() {
                               >
                                 Print
                               </button>
+                              {!isVoided && !entry.accepted && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkTendered(entry.id)}
+                                  disabled={tenderingId === entry.id}
+                                  className="rounded-lg border border-navy/15 bg-white px-2 py-1 text-xs font-medium text-navy shadow-sm transition-colors hover:bg-cream disabled:opacity-50"
+                                  title="Manually mark as tendered to carrier"
+                                >
+                                  {tenderingId === entry.id ? 'Saving…' : 'Tender'}
+                                </button>
+                              )}
                               {!isVoided && (
                                 <button
                                   type="button"

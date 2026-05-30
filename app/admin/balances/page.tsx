@@ -56,6 +56,7 @@ export default function BalancesPage() {
   const [form, setForm] = useState<SettleForm>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [refreshingTracking, setRefreshingTracking] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -72,6 +73,32 @@ export default function BalancesPage() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  async function refreshTracking() {
+    setRefreshingTracking(true);
+    setActionMessage(null);
+    try {
+      const res = await fetch('/api/shipping/tracking/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 50 }),
+      });
+      const body: { ok?: boolean; checked?: number; accepted?: number; pending?: number; error?: string } =
+        await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) {
+        setActionMessage(body.error ?? `Tracking refresh failed (HTTP ${res.status})`);
+        return;
+      }
+      setActionMessage(
+        `Checked ${body.checked} shipment(s) — ${body.accepted} newly accepted, ${body.pending} still pending.`
+      );
+      await refresh();
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : 'Tracking refresh failed');
+    } finally {
+      setRefreshingTracking(false);
+    }
+  }
 
   function openSettleFor(c: CarrierKey, prefilledAmount: number) {
     setOpenCarrier(c);
@@ -130,13 +157,24 @@ export default function BalancesPage() {
             Estimated amount owed to each carrier since the last recorded payment.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={refresh}
-          className="rounded-xl border border-navy/15 bg-white px-3 py-1.5 text-sm font-medium text-navy shadow-sm hover:bg-cream"
-        >
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={refreshTracking}
+            disabled={refreshingTracking}
+            className="rounded-xl border border-navy/15 bg-white px-3 py-1.5 text-sm font-medium text-navy shadow-sm hover:bg-cream disabled:opacity-50"
+            title="Poll FedEx/UPS/USPS tracking to confirm packages have been tendered"
+          >
+            {refreshingTracking ? 'Checking tracking…' : 'Refresh tracking'}
+          </button>
+          <button
+            type="button"
+            onClick={refresh}
+            className="rounded-xl border border-navy/15 bg-white px-3 py-1.5 text-sm font-medium text-navy shadow-sm hover:bg-cream"
+          >
+            Reload
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -178,6 +216,14 @@ export default function BalancesPage() {
                       ? `Since ${fmtDate(b.oldestUnsettledAt)}`
                       : 'Nothing unsettled'}
                   </p>
+                  {b.pendingCount > 0 && (
+                    <p className="mt-1 text-[11px] text-navy/50">
+                      <span className="inline-block rounded-full bg-tan/30 px-2 py-0.5 font-semibold text-navy/70">
+                        Pending
+                      </span>{' '}
+                      {fmtMoney(b.pendingUSD)} · {b.pendingCount} label(s) not yet scanned
+                    </p>
+                  )}
                   <p className="mt-2 text-[11px] text-navy/50">
                     Last paid:{' '}
                     {b.lastSettlement

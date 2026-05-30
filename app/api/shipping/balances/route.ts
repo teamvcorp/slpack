@@ -48,16 +48,23 @@ export async function GET(_req: NextRequest) {
         ? new Date(last.periodEnd ?? last.paidAt).getTime()
         : 0;
 
-      const unsettled = shipments.filter(
+      const inWindow = shipments.filter(
         (s) => s.carrier === carrier && !s.voided && new Date(s.timestamp).getTime() > cutoffMs
       );
+      // Only carrier-accepted shipments contribute to the actual owed balance.
+      const accepted = inWindow.filter((s) => s.accepted === true);
+      const pending = inWindow.filter((s) => s.accepted !== true);
 
-      const owedUSD = unsettled.reduce(
+      const owedUSD = accepted.reduce(
+        (sum, s) => sum + (s.shippingUSD ?? 0) + (s.insuranceUSD ?? 0),
+        0
+      );
+      const pendingUSD = pending.reduce(
         (sum, s) => sum + (s.shippingUSD ?? 0) + (s.insuranceUSD ?? 0),
         0
       );
 
-      const oldest = unsettled.reduce<string | null>(
+      const oldest = accepted.reduce<string | null>(
         (acc, s) => (acc == null || s.timestamp < acc ? s.timestamp : acc),
         null
       );
@@ -65,9 +72,11 @@ export async function GET(_req: NextRequest) {
       return {
         carrier,
         owedUSD: Math.round(owedUSD * 100) / 100,
-        shipmentCount: unsettled.length,
+        shipmentCount: accepted.length,
         oldestUnsettledAt: oldest,
         lastSettlement: last,
+        pendingUSD: Math.round(pendingUSD * 100) / 100,
+        pendingCount: pending.length,
       };
     });
 
