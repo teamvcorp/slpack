@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import type { CartItem, CartResult } from '../types/shipping';
+import { sanitizeEmail } from '@/lib/email';
 
 interface Props {
   cart: CartItem[];
@@ -77,8 +78,18 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
   const totalInsurance = cart.reduce((s, i) => s + (i.insurance?.premiumUSD ?? 0), 0);
   const grandTotal = totalShipping + totalInsurance + packingFeeUSD;
 
-  // Customer info from first item
-  const { customerName = '', customerEmail = '' } = cart[0]?.shipment ?? {};
+  // Sender (paying customer) drives Stripe billing details. Fall back to
+  // recipient only when no sender info was captured — keeps single-field
+  // counter workflows working even if the sender section was left blank.
+  const firstShipment = cart[0]?.shipment;
+  const billingName =
+    firstShipment?.senderName?.trim() || firstShipment?.customerName || '';
+  const billingEmail =
+    sanitizeEmail(firstShipment?.senderEmail) ??
+    sanitizeEmail(firstShipment?.customerEmail) ??
+    '';
+  // Receipt copy still goes to the recipient on success screen if no sender email.
+  const receiptDisplayEmail = billingEmail || firstShipment?.customerEmail || '';
 
   // Mount Stripe card element once the 'card' step is rendered
   useEffect(() => {
@@ -141,7 +152,7 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
           amountUSD: grandTotal,
           carrier: cart[0]?.carrier ?? 'multi',
           serviceName: cart.length === 1 ? cart[0].rate.serviceName : `${cart.length} packages`,
-          customerEmail,
+          customerEmail: billingEmail || undefined,
           shipmentDetails: {
             originZip: cart[0]?.shipment.originZip,
             destZip: cart[0]?.shipment.destZip,
@@ -182,8 +193,8 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
         payment_method: {
           card: cardElementRef.current,
           billing_details: {
-            name: customerName || undefined,
-            email: customerEmail || undefined,
+            name: billingName || undefined,
+            email: billingEmail || undefined,
           },
         },
       });
@@ -219,8 +230,8 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
           <p className="mt-2 text-sm text-navy/60">
             ${grandTotal.toFixed(2)} · {cart.length} package{cart.length !== 1 ? 's' : ''}
           </p>
-          {customerEmail && (
-            <p className="mt-1 text-xs text-navy/40">Receipt sent to {customerEmail}</p>
+          {receiptDisplayEmail && (
+            <p className="mt-1 text-xs text-navy/40">Receipt sent to {receiptDisplayEmail}</p>
           )}
           <p className="mt-1 text-xs text-navy/40">Generating labels…</p>
         </div>

@@ -44,6 +44,9 @@ const DEFAULTS: ShipmentInput = {
   customerName: '',
   customerPhone: '',
   customerEmail: '',
+  senderName: '',
+  senderPhone: '',
+  senderEmail: '',
 };
 
 const COUNTRIES = [
@@ -451,10 +454,13 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         </div>
       </div>
 
-      {/* ── Row 3: Customer info ── */}
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* ── Row 3: Recipient info ── */}
+      <h2 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wider text-navy">
+        Recipient (ship-to)
+      </h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="relative" ref={abRef}>
-          <label className={lbl}>Customer Name</label>
+          <label className={lbl}>Recipient Name</label>
           <input
             className={input}
             value={form.customerName}
@@ -490,7 +496,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
           )}
         </div>
         <div>
-          <label className={lbl}>Customer Phone</label>
+          <label className={lbl}>Recipient Phone</label>
           <input
             className={input}
             type="tel"
@@ -501,7 +507,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
           />
         </div>
         <div>
-          <label className={lbl}>Customer Email</label>
+          <label className={lbl}>Recipient Email</label>
           <input
             className={input}
             type="email"
@@ -510,6 +516,48 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
             maxLength={200}
             placeholder="jane@example.com"
           />
+          <p className="mt-1 text-[10px] text-navy/40">Tracking notification will be sent here.</p>
+        </div>
+      </div>
+
+      {/* ── Row 4: Sender info (paying customer) ── */}
+      <h2 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wider text-navy">
+        Sender (paying customer)
+      </h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <label className={lbl}>Sender Name</label>
+          <input
+            className={input}
+            value={form.senderName ?? ''}
+            onChange={(e) => set('senderName', e.target.value)}
+            maxLength={100}
+            placeholder="John Doe"
+            autoComplete="off"
+          />
+        </div>
+        <div>
+          <label className={lbl}>Sender Phone</label>
+          <input
+            className={input}
+            type="tel"
+            value={form.senderPhone ?? ''}
+            onChange={(e) => set('senderPhone', e.target.value)}
+            maxLength={20}
+            placeholder="(712) 555-0199"
+          />
+        </div>
+        <div>
+          <label className={lbl}>Sender Email</label>
+          <input
+            className={input}
+            type="email"
+            value={form.senderEmail ?? ''}
+            onChange={(e) => set('senderEmail', e.target.value)}
+            maxLength={200}
+            placeholder="john@example.com"
+          />
+          <p className="mt-1 text-[10px] text-navy/40">Used for the credit-card receipt.</p>
         </div>
       </div>
 

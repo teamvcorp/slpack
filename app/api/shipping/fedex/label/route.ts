@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logAndRespond } from '@/lib/apiErrors';
+
+const ROUTE = 'shipping/fedex/label';
 
 const BASE = process.env.FEDEX_SANDBOX === 'false'
   ? 'https://apis.fedex.com'
@@ -23,15 +26,29 @@ async function getToken(): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
+  let requestSummary: Record<string, unknown> | undefined;
   try {
     if (!process.env.FEDEX_CLIENT_ID || !process.env.FEDEX_CLIENT_SECRET || !process.env.FEDEX_ACCOUNT_NUMBER) {
-      return NextResponse.json(
-        { error: 'FedEx credentials not configured (FEDEX_CLIENT_ID / FEDEX_CLIENT_SECRET / FEDEX_ACCOUNT_NUMBER)' },
-        { status: 503 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'fedex',
+        status: 503,
+        message: 'FedEx credentials not configured (FEDEX_CLIENT_ID / FEDEX_CLIENT_SECRET / FEDEX_ACCOUNT_NUMBER)',
+      });
     }
 
     const { shipment, serviceCode, insurance } = await req.json();
+    requestSummary = {
+      serviceCode,
+      originZip: shipment?.originZip,
+      destZip: shipment?.destZip,
+      destCountry: shipment?.destCountry,
+      weightLbs: shipment?.weightLbs,
+      lengthIn: shipment?.lengthIn,
+      widthIn: shipment?.widthIn,
+      heightIn: shipment?.heightIn,
+      insured: Boolean(insurance?.enabled),
+    };
 
     const token = await getToken();
     const accountNumber = process.env.FEDEX_ACCOUNT_NUMBER;
@@ -54,8 +71,8 @@ export async function POST(req: NextRequest) {
       requestedShipment: {
         shipper: {
           contact: {
-            personName: 'Storm Lake Pack and Ship',
-            phoneNumber: '7122131234',
+            personName: shipment.senderName?.trim() || 'Storm Lake Pack and Ship',
+            phoneNumber: (shipment.senderPhone || '7122131234').replace(/\D/g, '').slice(0, 15) || '7122131234',
             companyName: 'Storm Lake Pack and Ship',
           },
           address: {
@@ -138,10 +155,15 @@ export async function POST(req: NextRequest) {
           null;
         if (msg) detail = msg;
       } catch { /* keep raw body */ }
-      return NextResponse.json(
-        { error: `FedEx ship error (${shipRes.status}): ${detail}` },
-        { status: shipRes.status }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'fedex',
+        status: shipRes.status,
+        message: `FedEx ship error (${shipRes.status}): ${detail}`,
+        upstreamStatus: shipRes.status,
+        upstreamBody: body,
+        requestSummary,
+      });
     }
 
     const data = await shipRes.json();
@@ -165,6 +187,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ trackingNumber, labelBase64, labelMimeType: 'application/pdf' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      carrier: 'fedex',
+      status: 500,
+      message,
+      requestSummary,
+      err,
+    });
   }
 }

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUspsToken, BASE } from '@/lib/uspsToken';
+import { logAndRespond } from '@/lib/apiErrors';
+
+const ROUTE = 'shipping/usps';
 
 // USPS Prices v3 does not accept 'ALL' — query each class individually.
 // Note: the API enum uses FIRST-CLASS_PACKAGE_SERVICE (hyphen, not underscore).
@@ -38,24 +41,31 @@ const MAIL_CLASSES: MailClass[] = [
 ];
 
 export async function POST(req: NextRequest) {
+  let requestSummary: Record<string, unknown> | undefined;
   try {
     if (!process.env.USPS_CLIENT_ID || !process.env.USPS_CLIENT_SECRET) {
-      return NextResponse.json(
-        { error: 'USPS credentials not configured (USPS_CLIENT_ID / USPS_CLIENT_SECRET)' },
-        { status: 503 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'usps',
+        status: 503,
+        message: 'USPS credentials not configured (USPS_CLIENT_ID / USPS_CLIENT_SECRET)',
+      });
     }
 
     const {
       originZip, destZip,
       weightLbs, lengthIn, widthIn, heightIn,
     } = await req.json();
+    requestSummary = { originZip, destZip, weightLbs, lengthIn, widthIn, heightIn };
 
     if (!originZip || !destZip || !weightLbs) {
-      return NextResponse.json(
-        { error: 'Missing required fields: originZip, destZip, weightLbs' },
-        { status: 400 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'usps',
+        status: 400,
+        message: 'Missing required fields: originZip, destZip, weightLbs',
+        requestSummary,
+      });
     }
 
     const w = Number(weightLbs);
@@ -70,16 +80,22 @@ export async function POST(req: NextRequest) {
 
     // Hard non-mailable limits — reject before any API call.
     if (w > 70) {
-      return NextResponse.json(
-        { error: `Package weight (${w} lb) exceeds the USPS maximum of 70 lb and cannot be shipped.` },
-        { status: 422 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'usps',
+        status: 422,
+        message: `Package weight (${w} lb) exceeds the USPS maximum of 70 lb and cannot be shipped.`,
+        requestSummary,
+      });
     }
     if (lengthPlusGirth > 130) {
-      return NextResponse.json(
-        { error: `Package combined length + girth (${lengthPlusGirth.toFixed(1)}") exceeds the USPS maximum of 130" and cannot be shipped.` },
-        { status: 422 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'usps',
+        status: 422,
+        message: `Package combined length + girth (${lengthPlusGirth.toFixed(1)}") exceeds the USPS maximum of 130" and cannot be shipped.`,
+        requestSummary,
+      });
     }
 
     // Pre-filter to only the classes this package qualifies for.
@@ -176,6 +192,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ rates });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      carrier: 'usps',
+      status: 500,
+      message,
+      requestSummary,
+      err,
+    });
   }
 }

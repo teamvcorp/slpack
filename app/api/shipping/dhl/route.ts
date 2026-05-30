@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logAndRespond } from '@/lib/apiErrors';
+
+const ROUTE = 'shipping/dhl';
 
 const BASE = 'https://express.api.dhl.com/mydhlapi';
 
@@ -14,6 +17,7 @@ function daysUntil(dateString: string): number | null {
 }
 
 export async function POST(req: NextRequest) {
+  let requestSummary: Record<string, unknown> | undefined;
   try {
     if (!process.env.DHL_API_KEY || process.env.DHL_API_KEY === 'your_dhl_api_key' ||
         !process.env.DHL_API_SECRET || process.env.DHL_API_SECRET === 'your_dhl_api_secret') {
@@ -24,6 +28,7 @@ export async function POST(req: NextRequest) {
       originZip, destZip, destCity, destCountry,
       weightLbs, lengthIn, widthIn, heightIn,
     } = await req.json();
+    requestSummary = { originZip, destZip, destCountry, weightLbs, lengthIn, widthIn, heightIn };
 
     const credentials = Buffer.from(
       `${process.env.DHL_API_KEY}:${process.env.DHL_API_SECRET}`
@@ -69,10 +74,15 @@ export async function POST(req: NextRequest) {
 
     if (!rateRes.ok) {
       const body = await rateRes.text();
-      return NextResponse.json(
-        { error: `DHL rate error (${rateRes.status})`, details: body },
-        { status: rateRes.status }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'dhl',
+        status: rateRes.status,
+        message: `DHL rate error (${rateRes.status})`,
+        upstreamStatus: rateRes.status,
+        upstreamBody: body,
+        requestSummary,
+      });
     }
 
     const data = await rateRes.json();
@@ -97,6 +107,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ rates });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      carrier: 'dhl',
+      status: 500,
+      message,
+      requestSummary,
+      err,
+    });
   }
 }

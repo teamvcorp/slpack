@@ -11,9 +11,15 @@ export interface ShipmentInput {
   widthIn: number;
   heightIn: number;
   declaredValueUSD: number;
+  /** Recipient (ship-to) contact */
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  /** Sender (paying customer at the counter) — used for Stripe billing details
+   *  and as the carrier label's ship-from contact when present */
+  senderName?: string;
+  senderPhone?: string;
+  senderEmail?: string;
 }
 
 export interface ShippingRate {
@@ -90,4 +96,35 @@ export interface ShipmentLogEntry {
   customerPhone: string;
   customerEmail: string;
   paymentMethod?: 'card' | 'cash';
+  /** Sender info captured when creating the shipment (for re-creating ship-from contact) */
+  senderName?: string;
+  senderPhone?: string;
+  senderEmail?: string;
+  /** Void state — voided shipments are excluded from revenue totals */
+  voided?: boolean;
+  voidedAt?: string; // ISO
+  voidReason?: string;
+  /** Outcome of the carrier-side cancel attempt (success/failed/skipped/manual) */
+  voidCarrierStatus?: 'success' | 'failed' | 'skipped' | 'manual';
+  voidCarrierMessage?: string;
+}
+
+/** Stored in /api/shipping/errors — one entry per server-side API error */
+export interface ErrorLogEntry {
+  id: string;
+  timestamp: string; // ISO
+  route: string; // e.g. 'shipping/fedex'
+  carrier?: CarrierKey;
+  /** HTTP status returned to the client */
+  status: number;
+  /** Short human-readable message */
+  message: string;
+  /** Upstream carrier HTTP status, when the failure was a forwarded response */
+  upstreamStatus?: number;
+  /** Upstream response body excerpt (truncated to ~2 KB) — vendor JSON/HTML */
+  upstreamBody?: string;
+  /** Sanitized request summary (no PII — zip/country/weight/dims only) */
+  requestSummary?: Record<string, unknown>;
+  /** Stack trace — recorded in development only */
+  stack?: string;
 }

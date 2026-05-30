@@ -1,15 +1,22 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import type { ShipmentLogEntry, CarrierKey } from '../types/shipping';
+import { useState, useEffect, useCallback, Fragment } from 'react';
+import type { ShipmentLogEntry, CarrierKey, ErrorLogEntry } from '../types/shipping';
 
 type Period = 'day' | 'week' | 'month' | 'all';
+type Tab = 'shipments' | 'errors';
 
 interface LogResponse {
   entries: ShipmentLogEntry[];
   totalRevenue: number;
   totalShipments: number;
   byCarrier: Record<string, number>;
+}
+
+interface ErrorsResponse {
+  entries: ErrorLogEntry[];
+  total: number;
+  byRoute: Record<string, number>;
 }
 
 const CARRIER_LABELS: Record<CarrierKey, string> = {
@@ -34,11 +41,16 @@ const PERIODS: { key: Period; label: string }[] = [
 ];
 
 export default function ShipmentLogPage() {
+  const [tab, setTab] = useState<Tab>('shipments');
   const [period, setPeriod] = useState<Period>('day');
   const [data, setData] = useState<LogResponse | null>(null);
+  const [errorsData, setErrorsData] = useState<ErrorsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
+  const [voidingId, setVoidingId] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const fetchLog = useCallback(async (p: Period) => {
     setLoading(true);
@@ -54,24 +66,122 @@ export default function ShipmentLogPage() {
     }
   }, []);
 
-  useEffect(() => { fetchLog(period); }, [period, fetchLog]);
+  const fetchErrors = useCallback(async (p: Period) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/shipping/errors?period=${p}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setErrorsData(await res.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load errors');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'shipments') fetchLog(period);
+    else fetchErrors(period);
+  }, [tab, period, fetchLog, fetchErrors]);
+
+  const handlePrintLabel = useCallback((id: string) => {
+    window.open(`/api/shipping/label/${encodeURIComponent(id)}`, '_blank', 'noopener');
+  }, []);
+
+  const handleVoid = useCallback(
+    async (id: string, trackingNumber: string | null) => {
+      const reason = window.prompt(
+        `Void shipment ${trackingNumber ?? id}?\n\nThis will attempt to cancel the label with the carrier and mark the shipment as voided in the log. Enter a reason:`
+      );
+      if (reason === null) return;
+
+      setVoidingId(id);
+      setActionMessage(null);
+      try {
+        let res = await fetch('/api/shipping/void', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, reason }),
+        });
+        let data: { ok?: boolean; voidCarrierStatus?: string; voidCarrierMessage?: string; error?: string } =
+          await res.json().catch(() => ({}));
+
+        // Carrier-side cancel failed — offer to force-mark as voided in DB only.
+        if (!res.ok && data?.error?.toLowerCase().includes('carrier cancel failed')) {
+          const force = window.confirm(
+            `${data.error}\n\nMark voided in the log anyway? (You will need to cancel/refund with the carrier manually.)`
+          );
+          if (!force) {
+            setActionMessage(data.error);
+            return;
+          }
+          res = await fetch('/api/shipping/void', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, reason, force: true }),
+          });
+          data = await res.json().catch(() => ({}));
+        }
+
+        if (!res.ok) {
+          setActionMessage(data?.error ?? `Failed (HTTP ${res.status})`);
+          return;
+        }
+        setActionMessage(
+          `Shipment voided. Carrier: ${data.voidCarrierStatus ?? 'n/a'}${
+            data.voidCarrierMessage ? ` — ${data.voidCarrierMessage}` : ''
+          }`
+        );
+        await fetchLog(period);
+      } catch (e) {
+        setActionMessage(e instanceof Error ? e.message : 'Void failed');
+      } finally {
+        setVoidingId(null);
+      }
+    },
+    [fetchLog, period]
+  );
 
   return (
     <div className="py-8">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-navy">Shipping Log</h1>
-          <p className="mt-1 text-sm text-navy/50">Activity summary by day, week, and month</p>
+          <h1 className="text-2xl font-bold text-navy">{tab === 'shipments' ? 'Shipping Log' : 'Error Log'}</h1>
+          <p className="mt-1 text-sm text-navy/50">
+            {tab === 'shipments'
+              ? 'Activity summary by day, week, and month'
+              : 'Server-side API errors captured from /api/shipping/*'}
+          </p>
         </div>
-        {/* Search */}
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search customer, tracking, carrier…"
-          className="rounded-xl border border-navy/10 bg-white px-4 py-2 text-sm text-navy placeholder-navy/30 shadow-sm outline-none focus:border-navy/30 focus:ring-1 focus:ring-navy/20 sm:w-64"
-        />
+        {/* Tab switcher */}
+        <div className="flex gap-1 rounded-xl border border-navy/10 bg-cream p-1">
+          {(['shipments', 'errors'] as Tab[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => { setTab(t); setSearch(''); }}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                tab === t
+                  ? 'bg-white text-navy shadow-sm'
+                  : 'text-navy/50 hover:text-navy'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        {/* Search (shipments tab only) */}
+        {tab === 'shipments' && (
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search customer, tracking, carrier…"
+            className="rounded-xl border border-navy/10 bg-white px-4 py-2 text-sm text-navy placeholder-navy/30 shadow-sm outline-none focus:border-navy/30 focus:ring-1 focus:ring-navy/20 sm:w-64"
+          />
+        )}
         {/* Period tabs */}
         <div className="flex gap-1 rounded-xl border border-navy/10 bg-cream p-1">
           {PERIODS.map((p) => (
@@ -94,9 +204,21 @@ export default function ShipmentLogPage() {
       {error && (
         <div className="mb-4 rounded-xl bg-red/10 px-4 py-3 text-sm text-red">{error}</div>
       )}
+      {actionMessage && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-navy/10 bg-cream px-4 py-3 text-sm text-navy">
+          <span>{actionMessage}</span>
+          <button
+            type="button"
+            onClick={() => setActionMessage(null)}
+            className="text-navy/40 hover:text-navy"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Summary cards */}
-      {data && !loading && (
+      {tab === 'shipments' && data && !loading && (
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-xl border border-navy/10 bg-white p-4 shadow-sm">
@@ -155,44 +277,83 @@ export default function ShipmentLogPage() {
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Route</th>
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Tracking</th>
                       <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-navy/40">Total</th>
+                      <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-navy/40">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-navy/5">
                     {filtered.map((entry) => {
                       const dt = new Date(entry.timestamp);
                       const color = CARRIER_COLORS[entry.carrier] ?? '#ccc';
+                      const isVoided = !!entry.voided;
+                      const isVoiding = voidingId === entry.id;
                       return (
-                        <tr key={entry.id} className="transition-colors hover:bg-cream/50">
-                          <td className="px-4 py-3 text-navy/60">
-                            <p>{dt.toLocaleDateString()}</p>
+                        <tr
+                          key={entry.id}
+                          className={`transition-colors hover:bg-cream/50 ${isVoided ? 'bg-red/5 text-navy/40' : ''}`}
+                        >
+                          <td className={`px-4 py-3 ${isVoided ? 'text-navy/40' : 'text-navy/60'}`}>
+                            <p className={isVoided ? 'line-through' : ''}>{dt.toLocaleDateString()}</p>
                             <p className="text-xs text-navy/30">{dt.toLocaleTimeString()}</p>
                           </td>
                           <td className="px-4 py-3">
                             <span
                               className="inline-block rounded-full px-2 py-0.5 text-xs font-bold text-white"
-                              style={{ backgroundColor: color }}
+                              style={{ backgroundColor: color, opacity: isVoided ? 0.5 : 1 }}
                             >
                               {CARRIER_LABELS[entry.carrier] ?? entry.carrier.toUpperCase()}
                             </span>
+                            {isVoided && (
+                              <span className="ml-2 inline-block rounded-full bg-red/10 px-2 py-0.5 text-[10px] font-bold uppercase text-red">
+                                Voided
+                              </span>
+                            )}
                           </td>
-                          <td className="px-4 py-3 text-navy">{entry.serviceName}</td>
+                          <td className={`px-4 py-3 ${isVoided ? 'text-navy/40 line-through' : 'text-navy'}`}>{entry.serviceName}</td>
                           <td className="px-4 py-3">
-                            <p className="font-medium text-navy">{entry.customerName || '—'}</p>
+                            <p className={`font-medium ${isVoided ? 'text-navy/40 line-through' : 'text-navy'}`}>{entry.customerName || '—'}</p>
                             <p className="text-xs text-navy/40">{entry.customerEmail || ''}</p>
                           </td>
-                          <td className="px-4 py-3 text-navy/60">
+                          <td className={`px-4 py-3 ${isVoided ? 'text-navy/30' : 'text-navy/60'}`}>
                             {entry.originZip} → {entry.destCity ? `${entry.destCity}, ` : ''}{entry.destZip}
                           </td>
                           <td className="px-4 py-3">
-                            <span className="font-mono text-xs text-navy">
+                            <span className={`font-mono text-xs ${isVoided ? 'text-navy/40 line-through' : 'text-navy'}`}>
                               {entry.trackingNumber || '—'}
                             </span>
+                            {isVoided && entry.voidReason && (
+                              <p className="mt-1 text-[10px] text-red/80" title={entry.voidReason}>
+                                {entry.voidReason.length > 40 ? `${entry.voidReason.slice(0, 40)}…` : entry.voidReason}
+                              </p>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <p className="font-bold text-navy">${entry.totalUSD.toFixed(2)}</p>
+                            <p className={`font-bold ${isVoided ? 'text-navy/40 line-through' : 'text-navy'}`}>${entry.totalUSD.toFixed(2)}</p>
                             {entry.insuranceUSD > 0 && (
                               <p className="text-xs text-navy/40">+${entry.insuranceUSD.toFixed(2)} ins.</p>
                             )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handlePrintLabel(entry.id)}
+                                disabled={!entry.labelBase64}
+                                className="rounded-lg border border-navy/15 bg-white px-2 py-1 text-xs font-medium text-navy shadow-sm transition-colors hover:bg-cream disabled:cursor-not-allowed disabled:text-navy/30"
+                                title={entry.labelBase64 ? 'Open label in new tab to reprint' : 'No stored label'}
+                              >
+                                Print
+                              </button>
+                              {!isVoided && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleVoid(entry.id, entry.trackingNumber)}
+                                  disabled={isVoiding}
+                                  className="rounded-lg border border-red/30 bg-white px-2 py-1 text-xs font-medium text-red shadow-sm transition-colors hover:bg-red/5 disabled:opacity-50"
+                                >
+                                  {isVoiding ? 'Voiding…' : 'Void'}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -203,6 +364,99 @@ export default function ShipmentLogPage() {
             </div>
             );
           })()}
+        </>
+      )}
+
+      {/* Errors tab content */}
+      {tab === 'errors' && errorsData && !loading && (
+        <>
+          <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="rounded-xl border border-navy/10 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-navy/40">Errors</p>
+              <p className="mt-1 text-3xl font-extrabold text-navy">{errorsData.total}</p>
+            </div>
+            {Object.entries(errorsData.byRoute).slice(0, 3).map(([route, count]) => (
+              <div key={route} className="rounded-xl border border-navy/10 bg-white p-4 shadow-sm" style={{ borderLeftColor: '#D40511', borderLeftWidth: 4 }}>
+                <p className="truncate text-xs font-semibold uppercase tracking-wide text-navy/40">{route}</p>
+                <p className="mt-1 text-3xl font-extrabold text-navy">{count}</p>
+              </div>
+            ))}
+          </div>
+
+          {errorsData.entries.length === 0 ? (
+            <div className="rounded-xl border border-navy/10 bg-white p-10 text-center text-navy/40">
+              No errors recorded for this period.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-navy/10 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-navy/10 bg-cream text-left">
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Time</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Route</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Carrier</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Status</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Upstream</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-navy/5">
+                    {errorsData.entries.map((entry) => {
+                      const dt = new Date(entry.timestamp);
+                      const isOpen = expandedErrorId === entry.id;
+                      return (
+                        <Fragment key={entry.id}>
+                          <tr
+                            className="cursor-pointer transition-colors hover:bg-cream/50"
+                            onClick={() => setExpandedErrorId(isOpen ? null : entry.id)}
+                          >
+                            <td className="px-4 py-3 text-navy/60">
+                              <p>{dt.toLocaleDateString()}</p>
+                              <p className="text-xs text-navy/30">{dt.toLocaleTimeString()}</p>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-xs text-navy">{entry.route}</td>
+                            <td className="px-4 py-3 text-navy/60">{entry.carrier ?? '—'}</td>
+                            <td className="px-4 py-3">
+                              <span className="inline-block rounded-full bg-red/10 px-2 py-0.5 text-xs font-bold text-red">
+                                {entry.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-navy/60">{entry.upstreamStatus ?? '—'}</td>
+                            <td className="px-4 py-3 text-navy">{entry.message}</td>
+                          </tr>
+                          {isOpen && (entry.upstreamBody || entry.requestSummary || entry.stack) && (
+                            <tr key={`${entry.id}-detail`} className="bg-cream/30">
+                              <td colSpan={6} className="px-4 py-3">
+                                {entry.requestSummary && (
+                                  <div className="mb-3">
+                                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Request summary</p>
+                                    <pre className="max-h-48 overflow-auto rounded bg-white p-2 text-xs text-navy/80">{JSON.stringify(entry.requestSummary, null, 2)}</pre>
+                                  </div>
+                                )}
+                                {entry.upstreamBody && (
+                                  <div className="mb-3">
+                                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Upstream body</p>
+                                    <pre className="max-h-64 overflow-auto rounded bg-white p-2 text-xs text-navy/80">{entry.upstreamBody}</pre>
+                                  </div>
+                                )}
+                                {entry.stack && (
+                                  <div>
+                                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Stack</p>
+                                    <pre className="max-h-48 overflow-auto rounded bg-white p-2 text-xs text-navy/60">{entry.stack}</pre>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
 

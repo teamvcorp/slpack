@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sanitizeEmail } from '@/lib/email';
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,6 +17,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
 
+    // Stripe rejects malformed receipt_email values with a cryptic
+    // "user email is incorrect" error. Strip anything that isn't a plausible
+    // address before forwarding.
+    const receiptEmail = sanitizeEmail(customerEmail);
+
     // Lazy-load the Stripe SDK — avoids hard build errors before the package is installed
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
@@ -27,7 +33,7 @@ export async function POST(req: NextRequest) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: 'usd',
-      receipt_email: customerEmail ?? undefined,
+      receipt_email: receiptEmail,
       description: `Shipping: ${String(carrier).toUpperCase()} — ${serviceName}`,
       metadata: {
         carrier: String(carrier),

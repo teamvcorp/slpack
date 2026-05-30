@@ -23,9 +23,10 @@ export async function GET(req: NextRequest) {
     return true; // 'all'
   });
 
-  const totalRevenue = filtered.reduce((sum, e) => sum + e.totalUSD, 0);
-  const totalShipments = filtered.length;
+  const totalRevenue = filtered.reduce((sum, e) => (e.voided ? sum : sum + e.totalUSD), 0);
+  const totalShipments = filtered.filter((e) => !e.voided).length;
   const byCarrier = filtered.reduce<Record<string, number>>((acc, e) => {
+    if (e.voided) return acc;
     acc[e.carrier] = (acc[e.carrier] ?? 0) + 1;
     return acc;
   }, {});

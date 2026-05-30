@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logAndRespond } from '@/lib/apiErrors';
+
+const ROUTE = 'shipping/fedex';
 
 const BASE = process.env.FEDEX_SANDBOX === 'false'
   ? 'https://apis.fedex.com'
@@ -23,18 +26,22 @@ async function getToken(): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
+  let requestSummary: Record<string, unknown> | undefined;
   try {
     if (!process.env.FEDEX_CLIENT_ID || !process.env.FEDEX_CLIENT_SECRET) {
-      return NextResponse.json(
-        { error: 'FedEx credentials not configured (FEDEX_CLIENT_ID / FEDEX_CLIENT_SECRET)' },
-        { status: 503 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'fedex',
+        status: 503,
+        message: 'FedEx credentials not configured (FEDEX_CLIENT_ID / FEDEX_CLIENT_SECRET)',
+      });
     }
 
     const {
       originZip, destZip, destCountry,
       weightLbs, lengthIn, widthIn, heightIn,
     } = await req.json();
+    requestSummary = { originZip, destZip, destCountry, weightLbs, lengthIn, widthIn, heightIn };
 
     const token = await getToken();
 
@@ -77,10 +84,15 @@ export async function POST(req: NextRequest) {
 
     if (!rateRes.ok) {
       const body = await rateRes.text();
-      return NextResponse.json(
-        { error: `FedEx rate error (${rateRes.status})`, details: body },
-        { status: rateRes.status }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'fedex',
+        status: rateRes.status,
+        message: `FedEx rate error (${rateRes.status})`,
+        upstreamStatus: rateRes.status,
+        upstreamBody: body,
+        requestSummary,
+      });
     }
 
     const data = await rateRes.json();
@@ -106,6 +118,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ rates });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      carrier: 'fedex',
+      status: 500,
+      message,
+      requestSummary,
+      err,
+    });
   }
 }

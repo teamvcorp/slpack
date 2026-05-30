@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { appendLog } from '@/lib/shipmentLog';
+import { logAndRespond } from '@/lib/apiErrors';
+import { sanitizeEmail } from '@/lib/email';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
+
+const ROUTE = 'shipping/submit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -98,7 +102,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 4. Send receipt email via Resend ─────────────────────────────────────
-    if (shipment.customerEmail && process.env.RESEND_API_KEY) {
+    const recipientEmail = sanitizeEmail(shipment.customerEmail);
+    if (recipientEmail && process.env.RESEND_API_KEY) {
       try {
         const { Resend } = await import('resend');
         const resend = new Resend(process.env.RESEND_API_KEY);
@@ -108,7 +113,7 @@ export async function POST(req: NextRequest) {
         const shopName = 'Storm Lake Pack & Ship';
 
         await resend.emails.send({
-          from: `${shopName} <${fromEmail}>`,
+          fromrecipient{fromEmail}>`,
           to: shipment.customerEmail,
           subject: `Your Shipping Receipt — ${carrierLabel} ${trackingNumber}`,
           html: buildReceiptHtml({
@@ -137,7 +142,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ trackingNumber, labelBase64, labelMimeType, labelError });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      status: 500,
+      message,
+      err,
+    });
   }
 }
 

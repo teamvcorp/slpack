@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logAndRespond } from '@/lib/apiErrors';
+
+const ROUTE = 'shipping/ups/validate';
 
 const BASE = process.env.UPS_SANDBOX === 'false'
   ? 'https://onlinetools.ups.com'
@@ -27,18 +30,28 @@ async function getToken(): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
+  let requestSummary: Record<string, unknown> | undefined;
   try {
     if (!process.env.UPS_CLIENT_ID || !process.env.UPS_CLIENT_SECRET) {
-      return NextResponse.json(
-        { error: 'UPS credentials not configured' },
-        { status: 503 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'ups',
+        status: 503,
+        message: 'UPS credentials not configured',
+      });
     }
 
     const { streetLine, city, state, zip, country } = await req.json();
+    requestSummary = { zip, country, hasStreet: Boolean(streetLine), hasCity: Boolean(city), hasState: Boolean(state) };
 
     if (!zip) {
-      return NextResponse.json({ error: 'ZIP/postal code is required' }, { status: 400 });
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'ups',
+        status: 400,
+        message: 'ZIP/postal code is required',
+        requestSummary,
+      });
     }
 
     // UPS Address Validation API only supports US addresses
@@ -87,10 +100,15 @@ export async function POST(req: NextRequest) {
 
     if (!validateRes.ok) {
       const body = await validateRes.text();
-      return NextResponse.json(
-        { error: `UPS address validation error (${validateRes.status})`, details: body },
-        { status: validateRes.status }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'ups',
+        status: validateRes.status,
+        message: `UPS address validation error (${validateRes.status})`,
+        upstreamStatus: validateRes.status,
+        upstreamBody: body,
+        requestSummary,
+      });
     }
 
     const data = await validateRes.json();
@@ -146,6 +164,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      carrier: 'ups',
+      status: 500,
+      message,
+      requestSummary,
+      err,
+    });
   }
 }

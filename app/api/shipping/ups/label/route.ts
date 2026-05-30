@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logAndRespond } from '@/lib/apiErrors';
+
+const ROUTE = 'shipping/ups/label';
 
 const BASE = process.env.UPS_SANDBOX === 'false'
   ? 'https://onlinetools.ups.com'
@@ -27,12 +30,29 @@ async function getToken(): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
+  let requestSummary: Record<string, unknown> | undefined;
   try {
     if (!process.env.UPS_CLIENT_ID || !process.env.UPS_CLIENT_SECRET) {
-      return NextResponse.json({ error: 'UPS credentials not configured' }, { status: 503 });
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'ups',
+        status: 503,
+        message: 'UPS credentials not configured',
+      });
     }
 
     const { shipment, serviceCode, insurance } = await req.json();
+    requestSummary = {
+      serviceCode,
+      originZip: shipment?.originZip,
+      destZip: shipment?.destZip,
+      destCountry: shipment?.destCountry,
+      weightLbs: shipment?.weightLbs,
+      lengthIn: shipment?.lengthIn,
+      widthIn: shipment?.widthIn,
+      heightIn: shipment?.heightIn,
+      insured: Boolean(insurance?.enabled),
+    };
 
     const token = await getToken();
 
@@ -67,7 +87,7 @@ export async function POST(req: NextRequest) {
         Shipment: {
           Description: 'Package',
           Shipper: {
-            Name: 'Storm Lake Pack and Ship',
+            Name: shipment.senderName?.trim() || 'Storm Lake Pack and Ship',
             ShipperNumber: process.env.UPS_ACCOUNT_NUMBER ?? '',
             Address: {
               AddressLine: ['407 Lake Ave'],
@@ -89,7 +109,7 @@ export async function POST(req: NextRequest) {
             },
           },
           ShipFrom: {
-            Name: 'Storm Lake Pack and Ship',
+            Name: shipment.senderName?.trim() || 'Storm Lake Pack and Ship',
             Address: {
               AddressLine: ['407 Lake Ave'],
               City: 'Storm Lake',
@@ -140,11 +160,15 @@ export async function POST(req: NextRequest) {
           null;
         if (msg) detail = msg;
       } catch { /* keep raw body */ }
-      console.error('[UPS label] error response:', body);
-      return NextResponse.json(
-        { error: `UPS label error (${labelRes.status}): ${detail}` },
-        { status: labelRes.status }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'ups',
+        status: labelRes.status,
+        message: `UPS label error (${labelRes.status}): ${detail}`,
+        upstreamStatus: labelRes.status,
+        upstreamBody: body,
+        requestSummary,
+      });
     }
 
     const data = await labelRes.json();
@@ -164,6 +188,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ trackingNumber, labelBase64, labelMimeType });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      carrier: 'ups',
+      status: 500,
+      message,
+      requestSummary,
+      err,
+    });
   }
 }

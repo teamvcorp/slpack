@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logAndRespond } from '@/lib/apiErrors';
+
+const ROUTE = 'shipping/fedex/validate';
 
 const BASE = process.env.FEDEX_SANDBOX === 'false'
   ? 'https://apis.fedex.com'
@@ -38,15 +41,19 @@ export interface AddressValidationResult {
 }
 
 export async function POST(req: NextRequest) {
+  let requestSummary: Record<string, unknown> | undefined;
   try {
     if (!process.env.FEDEX_CLIENT_ID || !process.env.FEDEX_CLIENT_SECRET) {
-      return NextResponse.json(
-        { error: 'FedEx credentials not configured' },
-        { status: 503 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'fedex',
+        status: 503,
+        message: 'FedEx credentials not configured',
+      });
     }
 
     const { streetLine, city, state, zip, country } = await req.json();
+    requestSummary = { zip, country, hasStreet: Boolean(streetLine), hasCity: Boolean(city), hasState: Boolean(state) };
 
     // FedEx sandbox always returns a hardcoded dummy address regardless of input.
     // Skip the API call in sandbox mode and validate locally instead.
@@ -65,7 +72,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (!zip) {
-      return NextResponse.json({ error: 'ZIP/postal code is required' }, { status: 400 });
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'fedex',
+        status: 400,
+        message: 'ZIP/postal code is required',
+        requestSummary,
+      });
     }
 
     const token = await getToken();
@@ -97,10 +110,15 @@ export async function POST(req: NextRequest) {
 
     if (!validateRes.ok) {
       const body = await validateRes.text();
-      return NextResponse.json(
-        { error: `FedEx address validation error (${validateRes.status})`, details: body },
-        { status: validateRes.status }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'fedex',
+        status: validateRes.status,
+        message: `FedEx address validation error (${validateRes.status})`,
+        upstreamStatus: validateRes.status,
+        upstreamBody: body,
+        requestSummary,
+      });
     }
 
     const data = await validateRes.json();
@@ -156,6 +174,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      carrier: 'fedex',
+      status: 500,
+      message,
+      requestSummary,
+      err,
+    });
   }
 }

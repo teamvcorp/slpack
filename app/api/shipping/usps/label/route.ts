@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUspsToken, BASE } from '@/lib/uspsToken';
+import { logAndRespond } from '@/lib/apiErrors';
+
+const ROUTE = 'shipping/usps/label';
 
 interface LegacyShipment {
   customerName?: string;
   customerPhone?: string;
+  senderName?: string;
+  senderPhone?: string;
+  senderEmail?: string;
   destStreet?: string;
   destCity?: string;
   destState?: string;
@@ -71,15 +77,23 @@ function zipParts(zip: string): { ZIPCode: string; ZIPPlus4?: string } {
 }
 
 export async function POST(req: NextRequest) {
+  let requestSummary: Record<string, unknown> | undefined;
   try {
     if (!process.env.USPS_CLIENT_ID || !process.env.USPS_CLIENT_SECRET) {
-      return NextResponse.json({ error: 'USPS credentials not configured' }, { status: 503 });
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'usps',
+        status: 503,
+        message: 'USPS credentials not configured',
+      });
     }
     if (!process.env.USPS_CRID || !process.env.USPS_MID) {
-      return NextResponse.json(
-        { error: 'USPS_CRID and USPS_MID are required for label printing' },
-        { status: 503 }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'usps',
+        status: 503,
+        message: 'USPS_CRID and USPS_MID are required for label printing',
+      });
     }
 
     const body = (await req.json()) as {
@@ -103,6 +117,18 @@ export async function POST(req: NextRequest) {
     // }
     const modern = body as NewUspsRequest;
     const pkg = modern.shipment?.packageDetails?.[0];
+
+    requestSummary = {
+      shape: hasNewShape ? 'modern' : 'legacy',
+      mailClass: pkg?.mailClass ?? legacyServiceCode,
+      originZip: legacyShipment?.originZip ?? modern.shipment?.fromAddress?.ZIPCode,
+      destZip: legacyShipment?.destZip ?? modern.shipment?.toAddress?.ZIPCode,
+      weight: legacyShipment?.weightLbs ?? pkg?.weight,
+      length: legacyShipment?.lengthIn ?? pkg?.length,
+      width: legacyShipment?.widthIn ?? pkg?.width,
+      height: legacyShipment?.heightIn ?? pkg?.height,
+      insured: Boolean(insurance?.enabled),
+    };
 
     const token = await getUspsToken('labels');
 
@@ -145,7 +171,6 @@ export async function POST(req: NextRequest) {
     });
     if (!payAuthRes.ok) {
       const body = await payAuthRes.text();
-      console.error(`USPS payment auth error ${payAuthRes.status}: ${body}`);
       // 500 with empty message = USPS account configuration issue.
       // Fix: (1) link the developer app to your business account in the USPS
       //          Business Customer Gateway (business.usps.com),
@@ -153,13 +178,15 @@ export async function POST(req: NextRequest) {
       //      (3) verify CRID / MID / EPS account number match your BCG account.
       // For testing, set USPS_SANDBOX=true and use test credentials from
       // the USPS developer portal (apis-tem.usps.com).
-      return NextResponse.json(
-        {
-          error: `USPS payment auth error (${payAuthRes.status}) — ${body}`,
-          hint: 'Shipment may not be registered with USPS. Verify manually.',
-        },
-        { status: payAuthRes.status }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'usps',
+        status: payAuthRes.status,
+        message: `USPS payment auth error (${payAuthRes.status}) — ${body}`,
+        upstreamStatus: payAuthRes.status,
+        upstreamBody: body,
+        requestSummary,
+      });
     }
     const payAuthData = await payAuthRes.json();
     const paymentToken: string = payAuthData.paymentAuthorizationToken;
@@ -239,8 +266,8 @@ export async function POST(req: NextRequest) {
         ...(legacyShipment?.customerPhone ? { phone: legacyShipment.customerPhone } : {}),
       },
       fromAddress: {
-        firstName: 'Storm Lake Pack and Ship',
-        lastName: '',
+        firstName: (legacyShipment?.senderName?.trim().split(' ')[0]) || 'Storm Lake Pack and Ship',
+        lastName: (legacyShipment?.senderName?.trim().split(' ').slice(1).join(' ')) || '',
         streetAddress: '407 Lake Ave',
         city: 'Storm Lake',
         state: 'IA',
@@ -277,11 +304,15 @@ export async function POST(req: NextRequest) {
 
     if (!labelRes.ok) {
       const body = await labelRes.text();
-      console.error(`USPS label error ${labelRes.status}: ${body}`);
-      return NextResponse.json(
-        { error: `USPS label error (${labelRes.status})`, details: body },
-        { status: labelRes.status }
-      );
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'usps',
+        status: labelRes.status,
+        message: `USPS label error (${labelRes.status})`,
+        upstreamStatus: labelRes.status,
+        upstreamBody: body,
+        requestSummary,
+      });
     }
 
     const data = await labelRes.json();
@@ -295,6 +326,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return await logAndRespond({
+      route: ROUTE,
+      carrier: 'usps',
+      status: 500,
+      message,
+      requestSummary,
+      err,
+    });
   }
 }
