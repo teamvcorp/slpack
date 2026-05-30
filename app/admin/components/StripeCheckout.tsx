@@ -333,18 +333,18 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
           </div>
 
           {/* Customer info */}
-          {(customerName || customerEmail) && (
+          {(billingName || billingEmail) && (
             <div className="mt-3 space-y-1 text-sm">
-              {customerName && (
+              {billingName && (
                 <div className="flex justify-between">
                   <span className="text-navy/50">Customer</span>
-                  <span className="font-medium text-navy">{customerName}</span>
+                  <span className="font-medium text-navy">{billingName}</span>
                 </div>
               )}
-              {customerEmail && (
+              {billingEmail && (
                 <div className="flex justify-between">
                   <span className="text-navy/50">Email</span>
-                  <span className="font-medium text-navy">{customerEmail}</span>
+                  <span className="font-medium text-navy">{billingEmail}</span>
                 </div>
               )}
             </div>
