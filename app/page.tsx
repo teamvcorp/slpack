@@ -6,10 +6,16 @@ import Card from "./components/Card";
 import AskForm from "./components/AskForm";
 import { Footer } from "./components/Footer";
 import AdminShortcut from "./components/AdminShortcut";
+import { SITE, localBusinessJsonLd } from "@/lib/siteConfig";
 
 export default function Home() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        // Structured data helps search engines show rich local-business results.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd()) }}
+      />
       <AdminShortcut />
       <main className="min-h-screen bg-cream">
         <section className="mx-auto max-w-6xl bg-white shadow-sm">
@@ -213,6 +219,21 @@ export default function Home() {
                   <p className="font-semibold text-navy">503 Lake Ave, Storm Lake, IA 50588</p>
                   <p>(712) 560-1128</p>
                   <p>shipit@slpacknship.com</p>
+                </div>
+                <div className="mx-auto mt-6 max-w-xs rounded-xl bg-white p-5 shadow-sm">
+                  <h3 className="text-center text-sm font-semibold uppercase tracking-wide text-navy/50">
+                    Store Hours
+                  </h3>
+                  <dl className="mt-3 space-y-1.5 text-sm">
+                    {SITE.hours.map((h) => (
+                      <div key={h.label} className="flex justify-between">
+                        <dt className="text-navy/70">{h.label}</dt>
+                        <dd className={h.display === "Closed" ? "text-navy/40" : "font-medium text-navy"}>
+                          {h.display}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
                 </div>
               </div>
             </div>
