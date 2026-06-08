@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import type { RegisterProduct } from '@/app/admin/types/register';
 
+// Only show products tagged for this shop's account in Stripe metadata
+// (account_id). Override with REGISTER_ACCOUNT_ID if needed.
+const REGISTER_ACCOUNT_ID = process.env.REGISTER_ACCOUNT_ID ?? 'acct_1TfVvHJvkGWktLIO';
+
 // Catalog rarely changes mid-shift; let the platform cache it briefly.
 export const revalidate = 60;
 
@@ -18,14 +22,18 @@ export async function GET() {
       apiVersion: '2025-02-24.acacia',
     });
 
-    const res = await stripe.products.list({
+    // Metadata isn't filterable in products.list, so auto-paginate the full
+    // active catalog and filter by account_id ourselves — this way matching
+    // products beyond the first page are never missed.
+    const products: RegisterProduct[] = [];
+    for await (const p of stripe.products.list({
       active: true,
       limit: 100,
       expand: ['data.default_price'],
-    });
+    })) {
+      // Only this shop's products.
+      if (p.metadata?.account_id !== REGISTER_ACCOUNT_ID) continue;
 
-    const products: RegisterProduct[] = [];
-    for (const p of res.data) {
       const price = p.default_price;
       // Skip products with no usable default price (unset, tiered, or non-USD).
       if (!price || typeof price === 'string') continue;
