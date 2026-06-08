@@ -16,9 +16,7 @@ export default function RegisterPage() {
   const [cart, setCart] = useState<RegisterLineItem[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
 
-  // Custom line-item entry
-  const [customOpen, setCustomOpen] = useState(false);
-  const [customName, setCustomName] = useState('');
+  // Custom price entry
   const [customPrice, setCustomPrice] = useState('');
 
   useEffect(() => {
@@ -71,21 +69,18 @@ export default function RegisterPage() {
 
   function addCustom() {
     const amount = Math.max(0, Number.parseFloat(customPrice) || 0);
-    const name = customName.trim() || 'Custom item';
     if (amount <= 0) return;
     setCart((prev) => [
       ...prev,
       {
         id: `custom-${crypto.randomUUID()}`,
-        name,
+        name: 'Custom item',
         priceId: null,
         unitAmountUSD: amount,
         quantity: 1,
       },
     ]);
-    setCustomName('');
     setCustomPrice('');
-    setCustomOpen(false);
   }
 
   const subtotal = useMemo(
@@ -150,67 +145,36 @@ export default function RegisterPage() {
             </div>
           )}
 
-          {/* Custom item */}
-          <div className="mt-4">
-            {!customOpen ? (
-              <button
-                type="button"
-                onClick={() => setCustomOpen(true)}
-                className="rounded-lg border border-dashed border-navy/30 px-4 py-2.5 text-sm font-medium text-navy/60 transition-colors hover:border-blue hover:text-blue"
-              >
-                + Custom item
-              </button>
-            ) : (
-              <div className="flex flex-wrap items-end gap-2 rounded-xl border border-navy/10 bg-white p-4">
-                <div className="flex-1">
-                  <label htmlFor="customName" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-navy/50">
-                    Description
-                  </label>
-                  <input
-                    id="customName"
-                    type="text"
-                    placeholder="Custom item"
-                    value={customName}
-                    onChange={(e) => setCustomName(e.target.value)}
-                    className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm text-navy focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="customPrice" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-navy/50">
-                    Price
-                  </label>
-                  <div className="relative">
-                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-navy/40">$</span>
-                    <input
-                      id="customPrice"
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={customPrice}
-                      onChange={(e) => setCustomPrice(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && addCustom()}
-                      className="w-28 rounded-lg border border-navy/20 bg-white py-2 pl-7 pr-3 text-right text-sm font-semibold text-navy focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue"
-                    />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={addCustom}
-                  className="rounded-lg bg-blue px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-navy"
-                >
-                  Add
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setCustomOpen(false); setCustomName(''); setCustomPrice(''); }}
-                  className="rounded-lg border border-navy/20 px-3 py-2 text-sm font-medium text-navy/60 transition-colors hover:bg-cream"
-                >
-                  Cancel
-                </button>
+          {/* Custom price — add an ad-hoc amount not in the catalog */}
+          <div className="mt-4 flex items-end gap-2 rounded-xl border border-navy/10 bg-white p-4">
+            <div>
+              <label htmlFor="customPrice" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-navy/50">
+                Custom price
+              </label>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-navy/40">$</span>
+                <input
+                  id="customPrice"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={customPrice}
+                  onChange={(e) => setCustomPrice(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addCustom()}
+                  className="w-32 rounded-lg border border-navy/20 bg-white py-2 pl-7 pr-3 text-right text-sm font-semibold text-navy focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue"
+                />
               </div>
-            )}
+            </div>
+            <button
+              type="button"
+              onClick={addCustom}
+              disabled={!(Number.parseFloat(customPrice) > 0)}
+              className="rounded-lg bg-blue px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-navy disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Add to cart
+            </button>
           </div>
         </div>
 
