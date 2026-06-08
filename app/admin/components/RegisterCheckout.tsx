@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { buildSaleReceiptHtml } from '@/lib/receipt';
 import { sanitizeEmail } from '@/lib/email';
+import { printHtml } from './printHtml';
 import type { RegisterLineItem, SaleRecord } from '../types/register';
 
 interface Props {
@@ -18,28 +19,6 @@ interface Props {
 }
 
 type Step = 'review' | 'cash' | 'card' | 'processing' | 'success' | 'error';
-
-/** Prints receipt HTML via a hidden iframe → the OS/default printer dialog. */
-function printReceiptHtml(html: string) {
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-  document.body.appendChild(iframe);
-  const doc = iframe.contentWindow?.document;
-  if (!doc) {
-    document.body.removeChild(iframe);
-    return;
-  }
-  doc.open();
-  doc.write(html);
-  doc.close();
-  // doc.write's load timing is unreliable; give layout a beat before printing.
-  setTimeout(() => {
-    iframe.contentWindow?.focus();
-    iframe.contentWindow?.print();
-    setTimeout(() => iframe.remove(), 1000);
-  }, 200);
-}
 
 export default function RegisterCheckout({
   items,
@@ -126,7 +105,11 @@ export default function RegisterCheckout({
   function finishWithSale(sale: SaleRecord) {
     setCompletedSale(sale);
     setStep('success');
-    printReceiptHtml(buildSaleReceiptHtml(sale));
+    // Email is the preferred receipt — only auto-print when no email was given
+    // (so the customer still walks away with something).
+    if (!sale.customerEmail) {
+      printHtml(buildSaleReceiptHtml(sale));
+    }
   }
 
   async function handleConfirmCash() {
@@ -228,7 +211,7 @@ export default function RegisterCheckout({
           <div className="mt-6 flex gap-3">
             <button
               type="button"
-              onClick={() => printReceiptHtml(buildSaleReceiptHtml(completedSale))}
+              onClick={() => printHtml(buildSaleReceiptHtml(completedSale))}
               className="flex-1 rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream"
             >
               🖨 Print again

@@ -1,10 +1,22 @@
 "use client";
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
+import DropoffReport from '../components/DropoffReport';
+import SalesReport from '../components/SalesReport';
 import type { ShipmentLogEntry, CarrierKey, ErrorLogEntry } from '../types/shipping';
 
 type Period = 'day' | 'week' | 'month' | 'all';
-type Tab = 'shipments' | 'errors';
+type Tab = 'shipments' | 'sales' | 'dropoffs' | 'errors';
+
+const TAB_LABELS: Record<Tab, string> = {
+  shipments: 'Shipments',
+  sales: 'Sales',
+  dropoffs: 'Drop-offs',
+  errors: 'Errors',
+};
+
+/** Tabs that render a self-contained report component (own data + period). */
+const SELF_FETCHING: Tab[] = ['sales', 'dropoffs'];
 
 interface LogResponse {
   entries: ShipmentLogEntry[];
@@ -83,7 +95,8 @@ export default function ShipmentLogPage() {
 
   useEffect(() => {
     if (tab === 'shipments') fetchLog(period);
-    else fetchErrors(period);
+    else if (tab === 'errors') fetchErrors(period);
+    else setLoading(false); // sales/drop-offs tabs self-fetch in their components
   }, [tab, period, fetchLog, fetchErrors]);
 
   const handlePrintLabel = useCallback((id: string) => {
@@ -176,27 +189,39 @@ export default function ShipmentLogPage() {
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-navy">{tab === 'shipments' ? 'Shipping Log' : 'Error Log'}</h1>
+          <h1 className="text-2xl font-bold text-navy">
+            {tab === 'shipments'
+              ? 'Shipping Log'
+              : tab === 'sales'
+                ? 'Register Sales'
+                : tab === 'dropoffs'
+                  ? 'Drop-off Report'
+                  : 'Error Log'}
+          </h1>
           <p className="mt-1 text-sm text-navy/50">
             {tab === 'shipments'
               ? 'Activity summary by day, week, and month'
-              : 'Server-side API errors captured from /api/shipping/*'}
+              : tab === 'sales'
+                ? 'Register sales with receipt reprint & resend — today, month to date, year to date'
+                : tab === 'dropoffs'
+                  ? 'Scanned drop-off packages — today, month to date, year to date'
+                  : 'Server-side API errors captured from /api/shipping/*'}
           </p>
         </div>
         {/* Tab switcher */}
         <div className="flex gap-1 rounded-xl border border-navy/10 bg-cream p-1">
-          {(['shipments', 'errors'] as Tab[]).map((t) => (
+          {(['shipments', 'sales', 'dropoffs', 'errors'] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => { setTab(t); setSearch(''); }}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                 tab === t
                   ? 'bg-white text-navy shadow-sm'
                   : 'text-navy/50 hover:text-navy'
               }`}
             >
-              {t}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>
@@ -210,7 +235,8 @@ export default function ShipmentLogPage() {
             className="rounded-xl border border-navy/10 bg-white px-4 py-2 text-sm text-navy placeholder-navy/30 shadow-sm outline-none focus:border-navy/30 focus:ring-1 focus:ring-navy/20 sm:w-64"
           />
         )}
-        {/* Period tabs */}
+        {/* Period tabs — sales/drop-offs tabs manage their own period internally */}
+        {!SELF_FETCHING.includes(tab) && (
         <div className="flex gap-1 rounded-xl border border-navy/10 bg-cream p-1">
           {PERIODS.map((p) => (
             <button
@@ -227,6 +253,7 @@ export default function ShipmentLogPage() {
             </button>
           ))}
         </div>
+        )}
       </div>
 
       {error && (
@@ -516,7 +543,11 @@ export default function ShipmentLogPage() {
         </>
       )}
 
-      {loading && (
+      {/* Self-contained report tabs */}
+      {tab === 'sales' && <SalesReport />}
+      {tab === 'dropoffs' && <DropoffReport />}
+
+      {loading && !SELF_FETCHING.includes(tab) && (
         <div className="flex items-center justify-center py-20 text-navy/40">
           <svg className="mr-2 h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

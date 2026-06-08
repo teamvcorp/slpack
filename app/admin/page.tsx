@@ -16,6 +16,13 @@ const TILES = [
     badge: '4 carriers',
   },
   {
+    href: '/admin/dropoff',
+    icon: '📥',
+    title: 'Drop-off Scan',
+    desc: 'Scan prepaid package barcodes to log carrier, tracking number, and date, then email or print a customer receipt.',
+    badge: 'Scan',
+  },
+  {
     href: '/admin/log',
     icon: '📋',
     title: 'Shipping Log',
