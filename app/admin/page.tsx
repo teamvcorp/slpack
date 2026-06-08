@@ -2,6 +2,13 @@ import Link from 'next/link';
 
 const TILES = [
   {
+    href: '/admin/register',
+    icon: '🧾',
+    title: 'Register',
+    desc: 'Point of sale — ring up Stripe products or custom items, take cash or card, and print a receipt.',
+    badge: 'POS',
+  },
+  {
     href: '/admin/shipping',
     icon: '📦',
     title: 'Shipping Comparison',
