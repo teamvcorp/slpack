@@ -1,16 +1,17 @@
 "use client";
 
 import { useState, useRef, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 function LoginForm() {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const from = searchParams.get('from') ?? '/admin';
+  // Only allow same-site relative redirects (block open-redirect via ?from=).
+  const rawFrom = searchParams.get('from') ?? '/admin';
+  const from = rawFrom.startsWith('/') && !rawFrom.startsWith('//') ? rawFrom : '/admin';
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -28,7 +29,12 @@ function LoginForm() {
     });
 
     if (res.ok) {
-      router.push(from);
+      // Full-page navigation (not router.push): the auth cookie was just set,
+      // and the client router has a cached, pre-auth RSC entry for /admin from
+      // prefetch — pushing to it serves that stale (redirect) entry and appears
+      // to freeze until a manual refresh. A hard navigation re-runs the proxy
+      // with the new cookie and bypasses the stale cache.
+      window.location.assign(from);
     } else {
       setError('Incorrect passcode.');
       setPasscode('');

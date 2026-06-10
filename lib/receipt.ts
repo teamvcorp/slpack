@@ -8,6 +8,14 @@ function money(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+/** Escape user/vendor-supplied text before interpolating into receipt HTML. */
+function esc(value: unknown): string {
+  return String(value ?? '').replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string
+  );
+}
+
 /**
  * Builds a self-contained HTML receipt for a register sale.
  *
@@ -29,8 +37,8 @@ export function buildSaleReceiptHtml(sale: SaleRecord): string {
     .map((it) => {
       const qtyName =
         it.quantity > 1
-          ? `${it.name} <span style="color:#888;">× ${it.quantity}</span>`
-          : it.name;
+          ? `${esc(it.name)} <span style="color:#888;">× ${it.quantity}</span>`
+          : esc(it.name);
       const unit =
         it.quantity > 1
           ? `<div style="font-size:11px;color:#888;">${money(it.unitAmountUSD)} ea</div>`
@@ -140,13 +148,13 @@ export function buildDropoffReceiptHtml(record: DropoffRecord): string {
       <div style="font-size:11px;color:#666;">${dateStr}</div>
     </div>
 
-    ${record.customerName ? `<div style="font-size:12px;margin-bottom:8px;">Customer: ${record.customerName}</div>` : ''}
+    ${record.customerName ? `<div style="font-size:12px;margin-bottom:8px;">Customer: ${esc(record.customerName)}</div>` : ''}
 
     <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;">Carrier</div>
-    <div style="font-size:15px;font-weight:bold;margin-bottom:8px;">${carrierLabel}</div>
+    <div style="font-size:15px;font-weight:bold;margin-bottom:8px;">${esc(carrierLabel)}</div>
 
     <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;">Tracking Number</div>
-    <div style="font-size:15px;font-weight:bold;letter-spacing:0.04em;word-break:break-all;">${record.trackingNumber}</div>
+    <div style="font-size:15px;font-weight:bold;letter-spacing:0.04em;word-break:break-all;">${esc(record.trackingNumber)}</div>
 
     ${trackBlock}
 
@@ -193,9 +201,9 @@ export function buildDropoffReportHtml(
       const dt = new Date(r.timestamp);
       return `<tr>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;white-space:nowrap;">${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #eee;">${DROPOFF_CARRIER_LABELS[r.carrier] ?? r.carrier}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-family:monospace;">${r.trackingNumber}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #eee;">${r.customerName ?? ''}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;">${esc(DROPOFF_CARRIER_LABELS[r.carrier] ?? r.carrier)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-family:monospace;">${esc(r.trackingNumber)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;">${esc(r.customerName)}</td>
       </tr>`;
     })
     .join('');

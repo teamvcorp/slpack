@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { appendLog } from '@/lib/shipmentLog';
 import { logAndRespond } from '@/lib/apiErrors';
 import { sanitizeEmail } from '@/lib/email';
+import { INTERNAL_HEADER, internalApiToken } from '@/lib/internalAuth';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
 
 const ROUTE = 'shipping/submit';
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
         `${process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'}/api/shipping/${carrier}/label`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', [INTERNAL_HEADER]: internalApiToken() },
           body: JSON.stringify({ shipment, serviceCode, insurance }),
         }
       );
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
           `${process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'}/api/address-book`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', [INTERNAL_HEADER]: internalApiToken() },
             body: JSON.stringify({
               name: shipment.customerName ?? '',
               phone: shipment.customerPhone ?? '',

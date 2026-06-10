@@ -1,37 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+/** SHA-256 hex of the passcode — the same value stored in the admin_session cookie. */
+async function expectedToken(passcode: string): Promise<string> {
+  const encoded = new TextEncoder().encode(passcode);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Only protect /admin routes; let /admin/login through
-  if (!pathname.startsWith('/admin') || pathname.startsWith('/admin/login')) {
+  const isApi = pathname.startsWith('/api');
+  const isAdminPage = pathname.startsWith('/admin');
+
+  // The login page and the auth endpoint must stay public.
+  if (pathname.startsWith('/admin/login') || pathname.startsWith('/api/admin/auth')) {
     return NextResponse.next();
   }
 
-  const cookie = req.cookies.get('admin_session')?.value;
+  // Only /admin pages and /api routes are protected.
+  if (!isApi && !isAdminPage) {
+    return NextResponse.next();
+  }
+
   const passcode = process.env.ADMIN_PASSCODE ?? '';
-
   if (!passcode) {
-    // No passcode configured — allow access in dev
+    // No passcode configured — allow access (local dev).
     return NextResponse.next();
   }
 
-  // Derive expected token: SHA-256 of the passcode
-  const encoded = new TextEncoder().encode(passcode);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-  const expected = Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  const expected = await expectedToken(passcode);
 
-  if (cookie !== expected) {
-    const loginUrl = new URL('/admin/login', req.url);
-    loginUrl.searchParams.set('from', pathname);
-    return NextResponse.redirect(loginUrl);
+  // Browser requests carry the session cookie; trusted server-to-server calls
+  // (e.g. the shipping/submit route invoking the label + address-book routes)
+  // present the same token in a header so they don't get locked out.
+  const cookie = req.cookies.get('admin_session')?.value;
+  const internalHeader = req.headers.get('x-admin-internal');
+  const authorized = cookie === expected || internalHeader === expected;
+
+  if (authorized) {
+    return NextResponse.next();
   }
 
-  return NextResponse.next();
+  // Unauthenticated: APIs get a 401, pages get redirected to login.
+  if (isApi) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const loginUrl = new URL('/admin/login', req.url);
+  loginUrl.searchParams.set('from', pathname);
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
-  matcher: ['/admin/:path*'],
+  matcher: ['/admin/:path*', '/api/:path*'],
 };
