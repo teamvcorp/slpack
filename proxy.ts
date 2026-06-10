@@ -20,7 +20,8 @@ export async function proxy(req: NextRequest) {
   if (
     pathname.startsWith('/admin/login') ||
     pathname.startsWith('/api/admin/auth') ||
-    pathname.startsWith('/api/contact')
+    pathname.startsWith('/api/contact') ||
+    pathname.startsWith('/api/identity/webhook')
   ) {
     return NextResponse.next();
   }

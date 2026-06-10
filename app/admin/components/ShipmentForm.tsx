@@ -1,7 +1,23 @@
 "use client";
 
 import { useState, useRef, useEffect } from 'react';
+import IdentityVerifyModal from './IdentityVerifyModal';
 import type { ShipmentInput } from '../types/shipping';
+import type { IdCheck } from '@/lib/contacts';
+
+/** A verification is current if verified and the document hasn't expired (by month). */
+function idCheckValid(c?: IdCheck): boolean {
+  if (!c || c.status !== 'verified') return false;
+  if (!c.documentExpiration) return true;
+  const now = new Date();
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return c.documentExpiration >= cur;
+}
+function formatExp(s?: string): string {
+  if (!s) return '';
+  const [y, mo] = s.split('-');
+  return `${mo}/${y.slice(2)}`;
+}
 
 interface Props {
   onSubmit: (data: ShipmentInput) => void;
@@ -27,6 +43,7 @@ interface ContactView {
   zip?: string;
   country?: string;
   useCount: number;
+  idCheck?: IdCheck;
 }
 
 const DEFAULTS: ShipmentInput = {
@@ -70,8 +87,10 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
   const [addrResult, setAddrResult] = useState<AddressResult | null>(null);
   const [addrError, setAddrError] = useState<string | null>(null);
 
-  // ── Sender typeahead ──────────────────────────────────────────────────────
+  // ── Sender typeahead + ID verification ───────────────────────────────────
   const [senderId, setSenderId] = useState<string | null>(null);
+  const [senderIdCheck, setSenderIdCheck] = useState<IdCheck | undefined>(undefined);
+  const [showVerify, setShowVerify] = useState(false);
   const [senderSug, setSenderSug] = useState<ContactView[]>([]);
   const [senderOpen, setSenderOpen] = useState(false);
   const [senderActive, setSenderActive] = useState(0);
@@ -113,6 +132,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
   function handleSenderNameChange(value: string) {
     set('senderName', value);
     setSenderId(null); // editing the name de-selects any chosen sender
+    setSenderIdCheck(undefined);
     if (senderTimer.current) clearTimeout(senderTimer.current);
     senderTimer.current = setTimeout(() => searchSenders(value), 200);
   }
@@ -120,6 +140,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
   async function applySender(c: ContactView) {
     setForm((prev) => ({ ...prev, senderName: c.name, senderPhone: c.phone, senderEmail: c.email }));
     setSenderId(c.id);
+    setSenderIdCheck(c.idCheck);
     setSenderSug([]);
     setSenderOpen(false);
     // Load this sender's recipients so the recipient field is ready.
@@ -589,9 +610,29 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
       </div>
 
       {/* ── Sender info (paying customer) ── */}
-      <h2 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wider text-navy">
-        Sender (paying customer)
-      </h2>
+      <div className="mt-5 mb-2 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-navy">
+          Sender (paying customer)
+        </h2>
+        {idCheckValid(senderIdCheck) ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-semibold text-green-700"
+            title={`Verified ${senderIdCheck?.method === 'manual' ? 'at counter' : 'via Stripe Identity'} ${new Date(senderIdCheck!.verifiedAt).toLocaleDateString()}`}
+          >
+            ✓ ID verified{senderIdCheck?.documentExpiration ? ` · exp ${formatExp(senderIdCheck.documentExpiration)}` : ''}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowVerify(true)}
+            disabled={!form.senderName?.trim()}
+            title={form.senderName?.trim() ? undefined : 'Enter the sender name first'}
+            className="rounded-lg border border-blue/40 bg-blue/5 px-3 py-1.5 text-xs font-semibold text-blue transition-colors hover:bg-blue/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            🪪 Verify ID
+          </button>
+        )}
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="relative" ref={senderBoxRef}>
           <label className={lbl}>
@@ -731,6 +772,24 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
           Queries FedEx, UPS, USPS, and DHL simultaneously
         </p>
       </div>
+
+      {showVerify && (
+        <IdentityVerifyModal
+          sender={{
+            name: form.senderName ?? '',
+            phone: form.senderPhone ?? '',
+            email: form.senderEmail ?? '',
+          }}
+          onClose={() => setShowVerify(false)}
+          onVerified={(idCheck) => {
+            setSenderIdCheck(idCheck);
+            setShowVerify(false);
+            if (idCheck.verifiedName && !(form.senderName ?? '').trim()) {
+              setForm((prev) => ({ ...prev, senderName: idCheck.verifiedName as string }));
+            }
+          }}
+        />
+      )}
     </form>
   );
 }

@@ -10,6 +10,22 @@ import { ObjectId } from 'mongodb';
 const SENDERS = 'senders';
 const RECIPIENTS = 'recipients';
 
+/** Minimized ID-verification result stored on a sender (never DOB/full ID number/images). */
+export interface IdCheck {
+  status: 'verified';
+  method: 'stripe_identity' | 'manual';
+  verificationSessionId?: string; // stripe path
+  verifiedBy?: string;            // manual path (cashier)
+  verifiedName?: string;
+  address?: { line1: string; city: string; state: string; zip: string; country: string };
+  over21?: boolean;
+  idNumberLast4?: string;
+  documentType?: string;
+  issuingState?: string;
+  documentExpiration?: string;    // 'YYYY-MM'
+  verifiedAt: string;             // ISO
+}
+
 interface SenderDoc {
   _id?: ObjectId;
   name: string;
@@ -17,6 +33,7 @@ interface SenderDoc {
   email: string;
   lastUsed: string;
   useCount: number;
+  idCheck?: IdCheck;
 }
 
 interface RecipientDoc {
@@ -46,6 +63,7 @@ export interface ContactView {
   zip?: string;
   country?: string;
   useCount: number;
+  idCheck?: IdCheck;
 }
 
 function senders() {
@@ -60,7 +78,14 @@ function termRegex(term: string): RegExp {
 }
 
 function viewSender(s: SenderDoc): ContactView {
-  return { id: String(s._id), name: s.name, phone: s.phone, email: s.email, useCount: s.useCount ?? 0 };
+  return {
+    id: String(s._id),
+    name: s.name,
+    phone: s.phone,
+    email: s.email,
+    useCount: s.useCount ?? 0,
+    idCheck: s.idCheck,
+  };
 }
 function viewRecipient(r: RecipientDoc): ContactView {
   return {
@@ -166,4 +191,42 @@ export async function upsertContacts(input: ContactInput): Promise<{ senderId: s
   const rDoc = await recipients().findOne(rFilter);
 
   return { senderId: String(senderId), recipientId: rDoc?._id ? String(rDoc._id) : null };
+}
+
+/**
+ * Records an ID-verification result on a sender, creating the sender if this is
+ * the first time we've seen them (verification can happen before any shipment).
+ * Matches by phone → email → name, like upsertContacts.
+ */
+export async function attachIdCheckToSender(input: {
+  name?: string;
+  phone?: string;
+  email?: string;
+  idCheck: IdCheck;
+}): Promise<{ senderId: string | null }> {
+  await client.connect();
+  const now = new Date().toISOString();
+  const name = (input.name ?? input.idCheck.verifiedName ?? '').trim();
+  if (!name && !input.phone && !input.email) return { senderId: null };
+
+  const filter = input.phone
+    ? { phone: input.phone }
+    : input.email
+      ? { email: input.email }
+      : { name };
+
+  // Only write fields we actually have, so we never blank out an existing
+  // sender's name/phone/email when attaching a verification.
+  const set: Record<string, unknown> = { lastUsed: now, idCheck: input.idCheck };
+  if (name) set.name = name;
+  if (input.phone) set.phone = input.phone;
+  if (input.email) set.email = input.email;
+  const setOnInsert: Record<string, unknown> = { useCount: 0 };
+  if (!name) setOnInsert.name = '';
+  if (!input.phone) setOnInsert.phone = '';
+  if (!input.email) setOnInsert.email = '';
+
+  await senders().updateOne(filter, { $set: set, $setOnInsert: setOnInsert }, { upsert: true });
+  const doc = await senders().findOne(filter);
+  return { senderId: doc?._id ? String(doc._id) : null };
 }
