@@ -15,8 +15,13 @@ export async function proxy(req: NextRequest) {
   const isApi = pathname.startsWith('/api');
   const isAdminPage = pathname.startsWith('/admin');
 
-  // The login page and the auth endpoint must stay public.
-  if (pathname.startsWith('/admin/login') || pathname.startsWith('/api/admin/auth')) {
+  // Public endpoints: the login page, the auth endpoint, and the public
+  // contact form must stay reachable without a session.
+  if (
+    pathname.startsWith('/admin/login') ||
+    pathname.startsWith('/api/admin/auth') ||
+    pathname.startsWith('/api/contact')
+  ) {
     return NextResponse.next();
   }
 
