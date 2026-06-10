@@ -83,11 +83,33 @@ export default function DropoffScanPage() {
 
   return (
     <div className="py-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-navy">Drop-off Scan</h1>
-        <p className="mt-1 text-sm text-navy/50">
-          Scan a prepaid package barcode to log it and send the customer a receipt.
-        </p>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-navy">Drop-off Scan</h1>
+          <p className="mt-1 text-sm text-navy/50">
+            Scan a prepaid package barcode to log it and send the customer a receipt.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <a
+            href="https://www.fedex.com/retailship/scan/dropoff"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+            style={{ backgroundColor: '#4D148C' }}
+          >
+            Scan on FedEx ↗
+          </a>
+          <button
+            type="button"
+            disabled
+            title="UPS scan URL coming soon"
+            className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white opacity-40 shadow-sm"
+            style={{ backgroundColor: '#351C15' }}
+          >
+            Scan on UPS ↗
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
