@@ -1,7 +1,6 @@
-import { NextRequest } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { readLog } from '@/lib/shipmentLog';
-import { lastSettlementByCarrier } from '@/lib/settlements';
+import { readSettlements, lastSettlementByCarrier } from '@/lib/settlements';
 import { getUspsToken, BASE as USPS_BASE } from '@/lib/uspsToken';
 import type { CarrierBalance, CarrierKey } from '@/app/admin/types/shipping';
 
@@ -33,38 +32,35 @@ async function fetchUspsPrepaid(): Promise<{ balanceUSD: number; asOf: string } 
   }
 }
 
-export async function GET(_req: NextRequest) {
+export async function GET() {
   try {
-    const [shipments, lastByCarrier, uspsPrepaid] = await Promise.all([
+    const [shipments, settlements, lastByCarrier, uspsPrepaid] = await Promise.all([
       readLog(),
+      readSettlements(),
       lastSettlementByCarrier(),
       fetchUspsPrepaid(),
     ]);
 
     const balances: CarrierBalance[] = CARRIERS.map((carrier) => {
       const last = lastByCarrier[carrier] ?? null;
-      // Shipments after the cutoff count toward the running balance.
-      const cutoffMs = last
-        ? new Date(last.periodEnd ?? last.paidAt).getTime()
-        : 0;
 
-      const inWindow = shipments.filter(
-        (s) => s.carrier === carrier && !s.voided && new Date(s.timestamp).getTime() > cutoffMs
+      const carrierShipments = shipments.filter((s) => s.carrier === carrier && !s.voided);
+      // Only carrier-confirmed (scanned) shipments count toward what's owed.
+      // Awaiting-scan labels are tracked for visibility but excluded from the balance.
+      const confirmed = carrierShipments.filter((s) => s.accepted === true);
+      const pendingCount = carrierShipments.length - confirmed.length;
+
+      const confirmedUSD = confirmed.reduce(
+        (sum, s) => sum + (s.shippingUSD ?? 0) + (s.insuranceUSD ?? 0),
+        0
       );
-      // Only carrier-accepted shipments contribute to the actual owed balance.
-      const accepted = inWindow.filter((s) => s.accepted === true);
-      const pending = inWindow.filter((s) => s.accepted !== true);
+      // Balance is a running ledger: total confirmed charges minus payments made.
+      const paidUSD = settlements
+        .filter((s) => s.carrier === carrier)
+        .reduce((sum, s) => sum + (s.amountUSD ?? 0), 0);
+      const owedUSD = confirmedUSD - paidUSD;
 
-      const sumCharges = (rows: typeof inWindow) =>
-        rows.reduce((sum, s) => sum + (s.shippingUSD ?? 0) + (s.insuranceUSD ?? 0), 0);
-
-      const owedUSD = sumCharges(accepted);
-      const pendingUSD = sumCharges(pending);
-      const totalUSD = owedUSD + pendingUSD;
-
-      // "Since" reflects the earliest unsettled shipment of any status, so the
-      // page shows current activity even before carriers scan the packages.
-      const oldest = inWindow.reduce<string | null>(
+      const oldest = confirmed.reduce<string | null>(
         (acc, s) => (acc == null || s.timestamp < acc ? s.timestamp : acc),
         null
       );
@@ -72,13 +68,12 @@ export async function GET(_req: NextRequest) {
       return {
         carrier,
         owedUSD: Math.round(owedUSD * 100) / 100,
-        shipmentCount: accepted.length,
+        confirmedUSD: Math.round(confirmedUSD * 100) / 100,
+        paidUSD: Math.round(paidUSD * 100) / 100,
+        shipmentCount: confirmed.length,
+        pendingCount,
         oldestUnsettledAt: oldest,
         lastSettlement: last,
-        pendingUSD: Math.round(pendingUSD * 100) / 100,
-        pendingCount: pending.length,
-        totalUSD: Math.round(totalUSD * 100) / 100,
-        totalCount: inWindow.length,
       };
     });
 

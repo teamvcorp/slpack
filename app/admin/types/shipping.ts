@@ -150,19 +150,20 @@ export interface SettlementEntry {
   note?: string;
 }
 
-/** One row in the balances API response */
+/** One row in the balances API response — a confirmed-charges-minus-payments ledger. */
 export interface CarrierBalance {
   carrier: CarrierKey;
-  /** Carrier-confirmed (scanned) amount — the billable portion */
+  /** Balance owed = confirmed charges − payments made (may be negative if overpaid) */
   owedUSD: number;
+  /** Total carrier-confirmed (scanned) shipping + insurance charges */
+  confirmedUSD: number;
+  /** Total payments recorded against this carrier */
+  paidUSD: number;
+  /** Count of carrier-confirmed shipments */
   shipmentCount: number;
-  /** Oldest unsettled shipment of any status (confirmed or pending) */
+  /** Labels created but not yet scanned — informational only, NOT in the balance */
+  pendingCount: number;
+  /** Oldest confirmed shipment timestamp */
   oldestUnsettledAt: string | null;
   lastSettlement: SettlementEntry | null;
-  /** Unaccepted (label-only, not yet scanned) totals — informational, not owed */
-  pendingUSD: number;
-  pendingCount: number;
-  /** All non-voided activity since last payment = owed + pending */
-  totalUSD: number;
-  totalCount: number;
 }

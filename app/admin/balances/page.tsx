@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import type { CarrierBalance, CarrierKey, SettlementEntry } from '../types/shipping';
+import type { CarrierBalance, CarrierKey } from '../types/shipping';
 
 interface BalancesResponse {
   balances: CarrierBalance[];
@@ -23,7 +23,8 @@ const CARRIER_COLORS: Record<CarrierKey, string> = {
 };
 
 function fmtMoney(n: number): string {
-  return `$${n.toFixed(2)}`;
+  const abs = Math.abs(n).toFixed(2);
+  return n < 0 ? `−$${abs}` : `$${abs}`;
 }
 
 function fmtDate(iso: string | null | undefined): string {
@@ -35,7 +36,6 @@ function fmtDate(iso: string | null | undefined): string {
 interface SettleForm {
   amountUSD: string;
   paidAt: string;
-  periodEnd: string;
   invoiceRef: string;
   note: string;
 }
@@ -43,7 +43,6 @@ interface SettleForm {
 const EMPTY_FORM: SettleForm = {
   amountUSD: '',
   paidAt: '',
-  periodEnd: '',
   invoiceRef: '',
   note: '',
 };
@@ -127,7 +126,6 @@ export default function BalancesPage() {
           carrier: openCarrier,
           amountUSD: amt,
           paidAt: form.paidAt ? new Date(form.paidAt).toISOString() : undefined,
-          periodEnd: form.periodEnd ? new Date(form.periodEnd).toISOString() : undefined,
           invoiceRef: form.invoiceRef || undefined,
           note: form.note || undefined,
         }),
@@ -154,7 +152,7 @@ export default function BalancesPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy">Carrier Balances</h1>
           <p className="mt-1 text-sm text-navy/50">
-            Estimated amount owed to each carrier since the last recorded payment.
+            Confirmed (carrier-scanned) shipment charges minus the payments you&apos;ve recorded.
           </p>
         </div>
         <div className="flex gap-2">
@@ -208,40 +206,33 @@ export default function BalancesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-navy/40">
                       {CARRIER_LABELS[b.carrier]}
                     </p>
-                    <span className="text-[10px] text-navy/40">{b.totalCount} shipments</span>
+                    <span className="text-[10px] text-navy/40">{b.shipmentCount} confirmed</span>
                   </div>
-                  <p className="mt-2 text-3xl font-extrabold text-navy">{fmtMoney(b.totalUSD)}</p>
+                  <p className="mt-2 text-3xl font-extrabold text-navy">{fmtMoney(b.owedUSD)}</p>
                   <p className="mt-1 text-[11px] text-navy/40">
-                    {b.oldestUnsettledAt
-                      ? `Since last payment · oldest ${fmtDate(b.oldestUnsettledAt)}`
-                      : 'Nothing unsettled'}
+                    {b.owedUSD < 0
+                      ? 'Credit balance'
+                      : b.oldestUnsettledAt
+                        ? `Oldest confirmed ${fmtDate(b.oldestUnsettledAt)}`
+                        : 'Nothing owed'}
                   </p>
 
-                  {/* Confirmed vs. awaiting-scan breakdown */}
-                  {b.totalCount > 0 && (
-                    <div className="mt-2 space-y-1 border-t border-navy/5 pt-2 text-[11px]">
-                      <div className="flex items-center justify-between text-navy/60">
-                        <span className="inline-flex items-center gap-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                          Confirmed (billable)
-                        </span>
-                        <span className="font-semibold text-navy">
-                          {fmtMoney(b.owedUSD)} · {b.shipmentCount}
-                        </span>
-                      </div>
-                      {b.pendingCount > 0 && (
-                        <div className="flex items-center justify-between text-navy/60">
-                          <span className="inline-flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-tan" />
-                            Awaiting scan
-                          </span>
-                          <span className="font-semibold text-navy/70">
-                            {fmtMoney(b.pendingUSD)} · {b.pendingCount}
-                          </span>
-                        </div>
-                      )}
+                  {/* Ledger: confirmed charges − payments made */}
+                  <div className="mt-2 space-y-1 border-t border-navy/5 pt-2 text-[11px]">
+                    <div className="flex items-center justify-between text-navy/60">
+                      <span>Confirmed charges</span>
+                      <span className="font-semibold text-navy">{fmtMoney(b.confirmedUSD)}</span>
                     </div>
-                  )}
+                    <div className="flex items-center justify-between text-navy/60">
+                      <span>Payments made</span>
+                      <span className="font-semibold text-navy">−{fmtMoney(b.paidUSD)}</span>
+                    </div>
+                    {b.pendingCount > 0 && (
+                      <p className="pt-1 text-[10px] text-navy/40">
+                        {b.pendingCount} label(s) awaiting scan — not included
+                      </p>
+                    )}
+                  </div>
                   <p className="mt-2 text-[11px] text-navy/50">
                     Last paid:{' '}
                     {b.lastSettlement
@@ -253,7 +244,7 @@ export default function BalancesPage() {
                   )}
                   <button
                     type="button"
-                    onClick={() => (isOpen ? setOpenCarrier(null) : openSettleFor(b.carrier, b.totalUSD))}
+                    onClick={() => (isOpen ? setOpenCarrier(null) : openSettleFor(b.carrier, b.owedUSD))}
                     className="mt-3 w-full rounded-lg border border-navy/15 bg-cream px-2 py-1.5 text-xs font-semibold text-navy hover:bg-cream/70"
                   >
                     {isOpen ? 'Cancel' : 'Record Payment'}
@@ -278,15 +269,6 @@ export default function BalancesPage() {
                           type="date"
                           value={form.paidAt}
                           onChange={(e) => setForm({ ...form, paidAt: e.target.value })}
-                          className="mt-1 w-full rounded-md border border-navy/15 bg-white px-2 py-1 text-sm text-navy"
-                        />
-                      </label>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-navy/40">
-                        Invoice covers shipments through (optional)
-                        <input
-                          type="date"
-                          value={form.periodEnd}
-                          onChange={(e) => setForm({ ...form, periodEnd: e.target.value })}
                           className="mt-1 w-full rounded-md border border-navy/15 bg-white px-2 py-1 text-sm text-navy"
                         />
                       </label>
