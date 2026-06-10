@@ -75,6 +75,11 @@ export default function PickupPage() {
           },
         }),
       });
+      if (res.status === 401) {
+        // Admin session expired — send the cashier to re-authenticate.
+        window.location.href = `/admin/login?from=${encodeURIComponent('/admin/pickup')}`;
+        return;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`);
       setResult({

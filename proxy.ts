@@ -47,7 +47,20 @@ export async function proxy(req: NextRequest) {
   const authorized = cookie === expected || internalHeader === expected;
 
   if (authorized) {
-    return NextResponse.next();
+    const res = NextResponse.next();
+    // Sliding expiration: refresh the session cookie on each authorized,
+    // cookie-based request so an actively-used counter session doesn't expire
+    // mid-shift (only true inactivity for the full window logs you out).
+    if (cookie === expected) {
+      res.cookies.set('admin_session', expected, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 8, // 8 hours from now
+        path: '/',
+      });
+    }
+    return res;
   }
 
   // Unauthenticated: APIs get a 401, pages get redirected to login.
