@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { amountUSD, carrier, serviceName, customerEmail, shipmentDetails } =
+    const { amountUSD, carrier, serviceName, customerEmail, customerName, saveCard, shipmentDetails } =
       await req.json();
 
     if (!amountUSD || Number(amountUSD) <= 0) {
@@ -30,11 +30,28 @@ export async function POST(req: NextRequest) {
 
     const amountCents = Math.round(Number(amountUSD) * 100);
 
+    // When the sender opts in, attach the charge to a (reusable) Stripe customer
+    // and mark the card for future off-session use, so it's saved on file.
+    let customerId: string | undefined;
+    if (saveCard) {
+      const existing = receiptEmail
+        ? await stripe.customers.list({ email: receiptEmail, limit: 1 })
+        : { data: [] as Array<{ id: string }> };
+      const customer =
+        existing.data[0] ??
+        (await stripe.customers.create({
+          email: receiptEmail,
+          name: typeof customerName === 'string' ? customerName : undefined,
+        }));
+      customerId = customer.id;
+    }
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: 'usd',
       receipt_email: receiptEmail,
       description: `Shipping: ${String(carrier).toUpperCase()} — ${serviceName}`,
+      ...(customerId ? { customer: customerId, setup_future_usage: 'off_session' } : {}),
       metadata: {
         carrier: String(carrier),
         service: String(serviceName),

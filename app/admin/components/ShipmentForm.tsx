@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useEffect } from 'react';
 import type { ShipmentInput } from '../types/shipping';
@@ -15,17 +15,18 @@ interface AddressResult {
   messages: string[];
 }
 
-interface AddressBookEntry {
+/** A sender or recipient contact returned for typeahead. */
+interface ContactView {
+  id: string;
   name: string;
   phone: string;
   email: string;
-  street: string;
-  city: string;
-  state: string;
-  zip: string;
-  country: string;
-  lastShipped: string;
-  shipCount: number;
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+  useCount: number;
 }
 
 const DEFAULTS: ShipmentInput = {
@@ -69,58 +70,155 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
   const [addrResult, setAddrResult] = useState<AddressResult | null>(null);
   const [addrError, setAddrError] = useState<string | null>(null);
 
-  // Address book search
-  const [abSuggestions, setAbSuggestions] = useState<AddressBookEntry[]>([]);
-  const [abOpen, setAbOpen] = useState(false);
-  const abTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abRef = useRef<HTMLDivElement>(null);
+  // ── Sender typeahead ──────────────────────────────────────────────────────
+  const [senderId, setSenderId] = useState<string | null>(null);
+  const [senderSug, setSenderSug] = useState<ContactView[]>([]);
+  const [senderOpen, setSenderOpen] = useState(false);
+  const [senderActive, setSenderActive] = useState(0);
+  const senderBoxRef = useRef<HTMLDivElement>(null);
+  const senderPhoneRef = useRef<HTMLInputElement>(null);
+  const senderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Recipient typeahead (scoped to the selected sender) ───────────────────
+  const [recipList, setRecipList] = useState<ContactView[]>([]); // this sender's recipients
+  const [recipSug, setRecipSug] = useState<ContactView[]>([]);
+  const [recipOpen, setRecipOpen] = useState(false);
+  const [recipActive, setRecipActive] = useState(0);
+  const recipBoxRef = useRef<HTMLDivElement>(null);
+  const recipPhoneRef = useRef<HTMLInputElement>(null);
+  const recipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (abRef.current && !abRef.current.contains(e.target as Node)) {
-        setAbOpen(false);
-      }
+      if (senderBoxRef.current && !senderBoxRef.current.contains(e.target as Node)) setSenderOpen(false);
+      if (recipBoxRef.current && !recipBoxRef.current.contains(e.target as Node)) setRecipOpen(false);
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  async function searchAddressBook(q: string) {
-    if (q.length < 2) { setAbSuggestions([]); setAbOpen(false); return; }
+  // ── Sender search + apply ─────────────────────────────────────────────────
+  async function searchSenders(q: string) {
+    if (q.trim().length < 2) { setSenderSug([]); setSenderOpen(false); return; }
     try {
-      const res = await fetch(`/api/address-book?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/contacts/senders?q=${encodeURIComponent(q)}`);
       const data = await res.json();
-      setAbSuggestions(data.results ?? []);
-      setAbOpen((data.results ?? []).length > 0);
-    } catch { setAbSuggestions([]); }
+      const list: ContactView[] = data.results ?? [];
+      setSenderSug(list);
+      setSenderActive(0);
+      setSenderOpen(list.length > 0);
+    } catch { setSenderSug([]); }
   }
 
-  function handleNameChange(value: string) {
+  function handleSenderNameChange(value: string) {
+    set('senderName', value);
+    setSenderId(null); // editing the name de-selects any chosen sender
+    if (senderTimer.current) clearTimeout(senderTimer.current);
+    senderTimer.current = setTimeout(() => searchSenders(value), 200);
+  }
+
+  async function applySender(c: ContactView) {
+    setForm((prev) => ({ ...prev, senderName: c.name, senderPhone: c.phone, senderEmail: c.email }));
+    setSenderId(c.id);
+    setSenderSug([]);
+    setSenderOpen(false);
+    // Load this sender's recipients so the recipient field is ready.
+    try {
+      const res = await fetch(`/api/contacts/recipients?senderId=${encodeURIComponent(c.id)}`);
+      const data = await res.json();
+      setRecipList(data.results ?? []);
+    } catch { setRecipList([]); }
+  }
+
+  // ── Recipient search (sender-scoped, else global) + apply ─────────────────
+  function filterRecipients(q: string): ContactView[] {
+    const term = q.trim().toLowerCase();
+    const base = !term
+      ? recipList
+      : recipList.filter(
+          (r) =>
+            r.name.toLowerCase().includes(term) ||
+            r.phone.includes(term) ||
+            (r.email ?? '').toLowerCase().includes(term)
+        );
+    return base.slice(0, 8);
+  }
+
+  async function searchRecipientsGlobal(q: string) {
+    if (q.trim().length < 2) { setRecipSug([]); setRecipOpen(false); return; }
+    try {
+      const res = await fetch(`/api/contacts/recipients?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      const list: ContactView[] = data.results ?? [];
+      setRecipSug(list);
+      setRecipActive(0);
+      setRecipOpen(list.length > 0);
+    } catch { setRecipSug([]); }
+  }
+
+  function handleRecipientNameChange(value: string) {
     set('customerName', value);
-    if (abTimeout.current) clearTimeout(abTimeout.current);
-    abTimeout.current = setTimeout(() => searchAddressBook(value), 250);
+    if (senderId) {
+      const list = filterRecipients(value);
+      setRecipSug(list);
+      setRecipActive(0);
+      setRecipOpen(list.length > 0);
+    } else {
+      if (recipTimer.current) clearTimeout(recipTimer.current);
+      recipTimer.current = setTimeout(() => searchRecipientsGlobal(value), 200);
+    }
   }
 
-  function applyAddressBook(entry: AddressBookEntry) {
+  function applyRecipient(c: ContactView) {
     setForm((prev) => ({
       ...prev,
-      customerName: entry.name,
-      customerPhone: entry.phone,
-      customerEmail: entry.email,
-      destStreet: entry.street,
-      destCity: entry.city,
-      destState: entry.state,
-      destZip: entry.zip,
-      destCountry: entry.country || 'US',
+      customerName: c.name,
+      customerPhone: c.phone,
+      customerEmail: c.email,
+      destStreet: c.street || prev.destStreet,
+      destCity: c.city || prev.destCity,
+      destState: c.state || prev.destState,
+      destZip: c.zip || prev.destZip,
+      destCountry: c.country || prev.destCountry,
     }));
-    setAbSuggestions([]);
-    setAbOpen(false);
+    setRecipSug([]);
+    setRecipOpen(false);
     setAddrResult(null);
+  }
+
+  /** Shared keyboard nav for a typeahead: ↑/↓ move, Tab/Enter accept, Esc close. */
+  function typeaheadKeyDown(
+    e: React.KeyboardEvent,
+    open: boolean,
+    sug: ContactView[],
+    active: number,
+    setActive: (n: number) => void,
+    apply: (c: ContactView) => void,
+    nextRef: React.RefObject<HTMLInputElement | null>,
+    close: () => void
+  ) {
+    if (!open || sug.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActive((active + 1) % sug.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive((active - 1 + sug.length) % sug.length);
+    } else if (e.key === 'Tab' && !e.shiftKey) {
+      // Accept the best/active match and advance to the phone field.
+      e.preventDefault();
+      apply(sug[active]);
+      nextRef.current?.focus();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      apply(sug[active]);
+    } else if (e.key === 'Escape') {
+      close();
+    }
   }
 
   function set<K extends keyof ShipmentInput>(key: K, value: ShipmentInput[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
-    // Clear validation result if address fields change
     if (['destStreet', 'destZip', 'destCity', 'destState', 'destCountry'].includes(key as string)) {
       setAddrResult(null);
       setAddrError(null);
@@ -173,7 +271,6 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         country: form.destCountry,
       });
 
-      // Call both FedEx and UPS in parallel; use whichever gives the richer result
       const [fedexRes, upsRes] = await Promise.allSettled([
         fetch('/api/shipping/fedex/validate', {
           method: 'POST',
@@ -190,7 +287,6 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
       const fedex = fedexRes.status === 'fulfilled' && !fedexRes.value?.error ? fedexRes.value : null;
       const ups = upsRes.status === 'fulfilled' && !upsRes.value?.error ? upsRes.value : null;
 
-      // Prefer UPS (street-level) if it validated; otherwise prefer FedEx; fall back to whichever responded
       const primary = (ups?.valid ? ups : null) ?? (fedex?.valid ? fedex : null) ?? ups ?? fedex;
 
       if (!primary) {
@@ -198,7 +294,6 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         return;
       }
 
-      // Merge messages from both, deduped, skipping 'SKIPPED' notices
       const allMessages: string[] = [
         ...(fedex?.messages ?? []),
         ...(ups?.messages ?? []),
@@ -230,6 +325,45 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
   const input =
     'w-full rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm text-navy placeholder-navy/30 focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue';
   const lbl = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-navy/50';
+
+  /** Renders a typeahead suggestion dropdown. */
+  function suggestionList(
+    sug: ContactView[],
+    active: number,
+    onPick: (c: ContactView) => void,
+    emptyLabel?: string
+  ) {
+    return (
+      <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-navy/10 bg-white shadow-lg">
+        {sug.length === 0 ? (
+          <p className="px-3 py-2 text-[11px] text-navy/40">{emptyLabel}</p>
+        ) : (
+          sug.map((entry, i) => (
+            <button
+              key={entry.id}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); onPick(entry); }}
+              className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-cream ${
+                i === active ? 'bg-cream' : ''
+              }`}
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs font-bold text-blue">
+                {entry.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-navy">{entry.name}</p>
+                <p className="truncate text-[11px] text-navy/50">
+                  {[entry.city, entry.state, entry.zip].filter(Boolean).join(', ')}
+                  {entry.phone ? ` · ${entry.phone}` : ''}
+                  {entry.useCount > 1 ? ` · ${entry.useCount}×` : ''}
+                </p>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    );
+  }
 
   return (
     <form
@@ -391,7 +525,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         </div>
       )}
 
-      {/* ── Row 2: Package dimensions ── */}
+      {/* ── Package dimensions ── */}
       <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
         <div>
           <label className={lbl}>Weight (lbs)</label>
@@ -454,91 +588,37 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         </div>
       </div>
 
-      {/* ── Row 3: Recipient info ── */}
-      <h2 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wider text-navy">
-        Recipient (ship-to)
-      </h2>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="relative" ref={abRef}>
-          <label className={lbl}>Recipient Name</label>
-          <input
-            className={input}
-            value={form.customerName}
-            onChange={(e) => handleNameChange(e.target.value)}
-            onFocus={() => { if (abSuggestions.length > 0) setAbOpen(true); }}
-            maxLength={100}
-            placeholder="Jane Smith"
-            autoComplete="off"
-          />
-          {abOpen && abSuggestions.length > 0 && (
-            <div className="absolute z-20 mt-1 w-full rounded-lg border border-navy/10 bg-white shadow-lg">
-              {abSuggestions.map((entry, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onMouseDown={() => applyAddressBook(entry)}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-cream first:rounded-t-lg last:rounded-b-lg"
-                >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs font-bold text-blue">
-                    {entry.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-navy">{entry.name}</p>
-                    <p className="truncate text-[11px] text-navy/50">
-                      {[entry.city, entry.state, entry.zip].filter(Boolean).join(', ')}
-                      {entry.phone ? ` · ${entry.phone}` : ''}
-                      {entry.shipCount > 1 ? ` · ${entry.shipCount} shipments` : ''}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div>
-          <label className={lbl}>Recipient Phone</label>
-          <input
-            className={input}
-            type="tel"
-            value={form.customerPhone}
-            onChange={(e) => set('customerPhone', e.target.value)}
-            maxLength={20}
-            placeholder="(712) 555-0100"
-          />
-        </div>
-        <div>
-          <label className={lbl}>Recipient Email</label>
-          <input
-            className={input}
-            type="email"
-            value={form.customerEmail}
-            onChange={(e) => set('customerEmail', e.target.value)}
-            maxLength={200}
-            placeholder="jane@example.com"
-          />
-          <p className="mt-1 text-[10px] text-navy/40">Tracking notification will be sent here.</p>
-        </div>
-      </div>
-
-      {/* ── Row 4: Sender info (paying customer) ── */}
+      {/* ── Sender info (paying customer) ── */}
       <h2 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wider text-navy">
         Sender (paying customer)
       </h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div>
-          <label className={lbl}>Sender Name</label>
+        <div className="relative" ref={senderBoxRef}>
+          <label className={lbl}>
+            Sender Name
+            <span className="ml-1 font-normal normal-case text-navy/30">— Tab to accept match</span>
+          </label>
           <input
             className={input}
             value={form.senderName ?? ''}
-            onChange={(e) => set('senderName', e.target.value)}
+            onChange={(e) => handleSenderNameChange(e.target.value)}
+            onFocus={() => { if (senderSug.length > 0) setSenderOpen(true); }}
+            onKeyDown={(e) =>
+              typeaheadKeyDown(e, senderOpen, senderSug, senderActive, setSenderActive, applySender, senderPhoneRef, () => setSenderOpen(false))
+            }
             maxLength={100}
             placeholder="John Doe"
             autoComplete="off"
           />
+          {senderId && (
+            <span className="absolute right-2 top-7 text-[10px] font-semibold text-green-600">✓ saved</span>
+          )}
+          {senderOpen && suggestionList(senderSug, senderActive, applySender)}
         </div>
         <div>
           <label className={lbl}>Sender Phone</label>
           <input
+            ref={senderPhoneRef}
             className={input}
             type="tel"
             value={form.senderPhone ?? ''}
@@ -558,6 +638,74 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
             placeholder="john@example.com"
           />
           <p className="mt-1 text-[10px] text-navy/40">Used for the credit-card receipt.</p>
+        </div>
+      </div>
+
+      {/* ── Recipient info (ship-to) ── */}
+      <h2 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wider text-navy">
+        Recipient (ship-to)
+        {senderId && recipList.length > 0 && (
+          <span className="ml-2 font-normal normal-case text-navy/40">
+            {recipList.length} saved for this sender
+          </span>
+        )}
+      </h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="relative" ref={recipBoxRef}>
+          <label className={lbl}>
+            Recipient Name
+            <span className="ml-1 font-normal normal-case text-navy/30">— Tab to accept match</span>
+          </label>
+          <input
+            className={input}
+            value={form.customerName}
+            onChange={(e) => handleRecipientNameChange(e.target.value)}
+            onFocus={() => {
+              if (senderId) {
+                const list = filterRecipients(form.customerName);
+                setRecipSug(list);
+                setRecipOpen(list.length > 0);
+              } else if (recipSug.length > 0) {
+                setRecipOpen(true);
+              }
+            }}
+            onKeyDown={(e) =>
+              typeaheadKeyDown(e, recipOpen, recipSug, recipActive, setRecipActive, applyRecipient, recipPhoneRef, () => setRecipOpen(false))
+            }
+            maxLength={100}
+            placeholder="Jane Smith"
+            autoComplete="off"
+          />
+          {recipOpen && suggestionList(
+            recipSug,
+            recipActive,
+            applyRecipient,
+            senderId ? 'No saved recipients match — will be added as new.' : undefined
+          )}
+        </div>
+        <div>
+          <label className={lbl}>Recipient Phone</label>
+          <input
+            ref={recipPhoneRef}
+            className={input}
+            type="tel"
+            value={form.customerPhone}
+            onChange={(e) => set('customerPhone', e.target.value)}
+            maxLength={20}
+            placeholder="(712) 555-0100"
+          />
+        </div>
+        <div>
+          <label className={lbl}>Recipient Email</label>
+          <input
+            className={input}
+            type="email"
+            value={form.customerEmail}
+            onChange={(e) => set('customerEmail', e.target.value)}
+            maxLength={200}
+            placeholder="jane@example.com"
+          />
+          <p className="mt-1 text-[10px] text-navy/40">Tracking notification will be sent here.</p>
         </div>
       </div>
 

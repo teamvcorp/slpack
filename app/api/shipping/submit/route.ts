@@ -4,6 +4,7 @@ import { appendLog } from '@/lib/shipmentLog';
 import { logAndRespond } from '@/lib/apiErrors';
 import { sanitizeEmail } from '@/lib/email';
 import { INTERNAL_HEADER, internalApiToken } from '@/lib/internalAuth';
+import { upsertContacts } from '@/lib/contacts';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
 
 const ROUTE = 'shipping/submit';
@@ -76,30 +77,27 @@ export async function POST(req: NextRequest) {
 
     await appendLog(entry);
 
-    // ── 3. Auto-save customer to address book ────────────────────────────────
-    if (shipment.customerName || shipment.customerPhone || shipment.customerEmail) {
-      try {
-        await fetch(
-          `${process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'}/api/address-book`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', [INTERNAL_HEADER]: internalApiToken() },
-            body: JSON.stringify({
-              name: shipment.customerName ?? '',
-              phone: shipment.customerPhone ?? '',
-              email: shipment.customerEmail ?? '',
-              street: shipment.destStreet ?? '',
-              city: shipment.destCity ?? '',
-              state: shipment.destState ?? '',
-              zip: shipment.destZip ?? '',
-              country: shipment.destCountry ?? 'US',
-              lastShipped: new Date().toISOString(),
-            }),
-          }
-        );
-      } catch {
-        // non-fatal — address book save failure should not block the shipment
-      }
+    // ── 3. Save sender → recipient contacts (one-to-many) ────────────────────
+    try {
+      await upsertContacts({
+        sender: {
+          name: shipment.senderName ?? '',
+          phone: shipment.senderPhone ?? '',
+          email: shipment.senderEmail ?? '',
+        },
+        recipient: {
+          name: shipment.customerName ?? '',
+          phone: shipment.customerPhone ?? '',
+          email: shipment.customerEmail ?? '',
+          street: shipment.destStreet ?? '',
+          city: shipment.destCity ?? '',
+          state: shipment.destState ?? '',
+          zip: shipment.destZip ?? '',
+          country: shipment.destCountry ?? 'US',
+        },
+      });
+    } catch {
+      // non-fatal — contact save failure should not block the shipment
     }
 
     // ── 4. Send receipt email via Resend ─────────────────────────────────────

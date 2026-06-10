@@ -56,7 +56,15 @@ const CARRIER_COLORS: Record<string, string> = {
   dhl: '#D40511',
 };
 
-type Step = 'review' | 'card' | 'processing' | 'success' | 'error';
+type Step = 'review' | 'consent' | 'card' | 'processing' | 'success' | 'error';
+
+interface SavedCard {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number | null;
+  expYear: number | null;
+}
 
 export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
   const [step, setStep] = useState<Step>('review');
@@ -66,6 +74,8 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
   const [isCharging, setIsCharging] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('Processing…');
   const [packingFeeInput, setPackingFeeInput] = useState('');
+  const [saveCard, setSaveCard] = useState(false);
+  const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
   const packingFeeUSD = Math.max(0, Number.parseFloat(packingFeeInput) || 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,6 +100,22 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
     '';
   // Receipt copy still goes to the recipient on success screen if no sender email.
   const receiptDisplayEmail = billingEmail || firstShipment?.customerEmail || '';
+
+  // Look up any cards this sender has saved on file (by email).
+  useEffect(() => {
+    if (!billingEmail) { setSavedCards([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/billing/saved-cards?email=${encodeURIComponent(billingEmail)}`);
+        const data = await res.json();
+        if (!cancelled) setSavedCards(data.cards ?? []);
+      } catch {
+        if (!cancelled) setSavedCards([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [billingEmail]);
 
   // Mount Stripe card element once the 'card' step is rendered
   useEffect(() => {
@@ -121,25 +147,62 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
     };
   }, [step]);
 
-  async function handleCash() {
+  // Shared post-payment step: generate labels for each package, then finish.
+  async function generateLabels(paymentMethod: 'card' | 'cash') {
     setStep('processing');
+    const results: CartResult[] = [];
+    for (let i = 0; i < cart.length; i++) {
+      setProcessingMsg(`Generating label ${i + 1} of ${cart.length}…`);
+      // Apply packing fee to first item only so it isn't double-counted.
+      results.push(await submitItem(cart[i], paymentMethod, i === 0 ? packingFeeUSD : 0));
+    }
+    setStep('success');
+    setTimeout(() => onSuccess(results, paymentMethod), 1500);
+  }
+
+  async function handleCash() {
     setErrorMsg(null);
     try {
-      const results: CartResult[] = [];
-      for (let i = 0; i < cart.length; i++) {
-        setProcessingMsg(`Processing package ${i + 1} of ${cart.length}…`);
-        // Apply packing fee to first item only so it isn't double-counted.
-        results.push(await submitItem(cart[i], 'cash', i === 0 ? packingFeeUSD : 0));
-      }
-      setStep('success');
-      setTimeout(() => onSuccess(results, 'cash'), 1500);
+      await generateLabels('cash');
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
       setStep('error');
     }
   }
 
-  async function handlePreparePayment() {
+  // Charge a card already on file for this sender (no Elements needed).
+  async function handleChargeSaved(paymentMethodId: string) {
+    setStep('processing');
+    setProcessingMsg('Charging saved card…');
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/billing/charge-saved-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: billingEmail,
+          paymentMethodId,
+          amountUSD: grandTotal,
+          carrier: cart[0]?.carrier ?? 'multi',
+          serviceName: cart.length === 1 ? cart[0].rate.serviceName : `${cart.length} packages`,
+          shipmentDetails: {
+            originZip: cart[0]?.shipment.originZip,
+            destZip: cart[0]?.shipment.destZip,
+            weightLbs: cart.reduce((s, i) => s + i.shipment.weightLbs, 0),
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? `Server error ${res.status}`);
+      await generateLabels('card');
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'The saved card could not be charged.');
+      setStep('error');
+    }
+  }
+
+  async function handlePreparePayment(save: boolean) {
+    setSaveCard(save);
     setStep('processing');
     setProcessingMsg('Initializing payment…');
     setErrorMsg(null);
@@ -153,6 +216,8 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
           carrier: cart[0]?.carrier ?? 'multi',
           serviceName: cart.length === 1 ? cart[0].rate.serviceName : `${cart.length} packages`,
           customerEmail: billingEmail || undefined,
+          customerName: billingName || undefined,
+          saveCard: save,
           shipmentDetails: {
             originZip: cart[0]?.shipment.originZip,
             destZip: cart[0]?.shipment.destZip,
@@ -202,19 +267,53 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
       if (error) throw new Error(error.message ?? 'Payment declined');
 
       // Payment confirmed — now safe to switch away from card step
-      setStep('processing');
-      const results: CartResult[] = [];
-      for (let i = 0; i < cart.length; i++) {
-        setProcessingMsg(`Generating label ${i + 1} of ${cart.length}…`);
-        results.push(await submitItem(cart[i], 'card', i === 0 ? packingFeeUSD : 0));
-      }
-      setStep('success');
-      setTimeout(() => onSuccess(results, 'card'), 1800);
+      await generateLabels('card');
     } catch (err: unknown) {
       setIsCharging(false);
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
       setStep('error');
     }
+  }
+
+  if (step === 'consent') {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/60 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-2xl">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-blue/10 text-3xl">💳</div>
+          <h3 className="mt-4 text-xl font-bold text-navy">Save card on file?</h3>
+          <p className="mt-2 text-sm leading-relaxed text-navy/60">
+            Ask {billingName || 'the customer'} if they&apos;d like to securely save this card for faster
+            checkout next time they ship.
+          </p>
+          <p className="mt-1 text-xs text-navy/40">
+            Card details are stored by Stripe — we never see or keep the full number.
+          </p>
+          <div className="mt-6 space-y-2">
+            <button
+              type="button"
+              onClick={() => handlePreparePayment(true)}
+              className="w-full rounded-lg bg-blue px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy"
+            >
+              Yes, save it securely
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePreparePayment(false)}
+              className="w-full rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream"
+            >
+              No thanks
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStep('review')}
+            className="mt-3 text-xs font-medium text-navy/40 transition-colors hover:text-navy"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (step === 'success') {
@@ -232,6 +331,9 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
           </p>
           {receiptDisplayEmail && (
             <p className="mt-1 text-xs text-navy/40">Receipt sent to {receiptDisplayEmail}</p>
+          )}
+          {saveCard && (
+            <p className="mt-1 text-xs font-medium text-green-600">💳 Card securely saved for next time</p>
           )}
           <p className="mt-1 text-xs text-navy/40">Generating labels…</p>
         </div>
@@ -350,6 +452,36 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
             </div>
           )}
 
+          {/* Saved card(s) on file for this sender */}
+          {step === 'review' && savedCards.length > 0 && (
+            <div className="mt-4 rounded-xl border border-blue/30 bg-blue/5 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-blue">
+                💳 Saved card on file
+              </p>
+              <div className="mt-2 space-y-2">
+                {savedCards.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => handleChargeSaved(c.id)}
+                    className="flex w-full items-center justify-between rounded-lg border border-navy/15 bg-white px-3 py-2 text-left transition-colors hover:border-blue hover:bg-blue/5"
+                  >
+                    <span className="text-sm font-medium text-navy">
+                      {c.brand.toUpperCase()} •••• {c.last4}
+                      {c.expMonth && c.expYear && (
+                        <span className="ml-2 text-xs text-navy/40">
+                          {String(c.expMonth).padStart(2, '0')}/{String(c.expYear).slice(-2)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-sm font-semibold text-blue">Charge ${grandTotal.toFixed(2)}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[10px] text-navy/40">Or use Cash / Card below for a different method.</p>
+            </div>
+          )}
+
           {/* Stripe card element — only rendered when on card step */}
           {step === 'card' && (
             <div className="mt-5">
@@ -405,7 +537,7 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
                 </button>
                 <button
                   type="button"
-                  onClick={handlePreparePayment}
+                  onClick={() => setStep('consent')}
                   className="flex-1 rounded-lg bg-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
                 >
                   💳 Card
