@@ -1,4 +1,5 @@
 import type { CarrierKey } from '@/app/admin/types/shipping';
+import { getFedexToken, getUpsToken } from '@/lib/carrierTokens';
 
 /**
  * Per-carrier tracking helpers. Each `check*` returns whether the carrier has
@@ -32,36 +33,6 @@ const USPS_BASE = process.env.USPS_SANDBOX === 'true'
   ? 'https://apis-tem.usps.com'
   : 'https://api.usps.com';
 
-async function fedexToken(): Promise<string> {
-  const res = await fetch(`${FEDEX_BASE}/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: process.env.FEDEX_CLIENT_ID!,
-      client_secret: process.env.FEDEX_CLIENT_SECRET!,
-    }),
-  });
-  if (!res.ok) throw new Error(`FedEx auth failed: ${res.status}`);
-  return (await res.json()).access_token as string;
-}
-
-async function upsToken(): Promise<string> {
-  const credentials = Buffer.from(
-    `${process.env.UPS_CLIENT_ID}:${process.env.UPS_CLIENT_SECRET}`
-  ).toString('base64');
-  const res = await fetch(`${UPS_BASE}/security/v1/oauth/token`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({ grant_type: 'client_credentials' }),
-  });
-  if (!res.ok) throw new Error(`UPS auth failed: ${res.status}`);
-  return (await res.json()).access_token as string;
-}
-
 async function uspsToken(): Promise<string> {
   const res = await fetch(`${USPS_BASE}/oauth2/v3/token`, {
     method: 'POST',
@@ -81,7 +52,7 @@ async function checkFedex(trackingNumber: string): Promise<AcceptanceResult> {
     return { accepted: false, reason: 'FedEx credentials not configured' };
   }
   try {
-    const token = await fedexToken();
+    const token = await getFedexToken();
     const res = await fetch(`${FEDEX_BASE}/track/v1/trackingnumbers`, {
       method: 'POST',
       headers: {
@@ -116,7 +87,7 @@ async function checkUps(trackingNumber: string): Promise<AcceptanceResult> {
     return { accepted: false, reason: 'UPS credentials not configured' };
   }
   try {
-    const token = await upsToken();
+    const token = await getUpsToken();
     const res = await fetch(
       `${UPS_BASE}/api/track/v1/details/${encodeURIComponent(trackingNumber)}`,
       {

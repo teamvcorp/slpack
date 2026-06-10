@@ -1,29 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
+import { getFedexToken } from '@/lib/carrierTokens';
 
 const ROUTE = 'shipping/fedex';
 
 const BASE = process.env.FEDEX_SANDBOX === 'false'
   ? 'https://apis.fedex.com'
   : 'https://apis-sandbox.fedex.com';
-
-async function getToken(): Promise<string> {
-  const res = await fetch(`${BASE}/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: process.env.FEDEX_CLIENT_ID!,
-      client_secret: process.env.FEDEX_CLIENT_SECRET!,
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`FedEx auth failed (${res.status}): ${body}`);
-  }
-  const data = await res.json();
-  return data.access_token as string;
-}
 
 export async function POST(req: NextRequest) {
   let requestSummary: Record<string, unknown> | undefined;
@@ -43,7 +26,7 @@ export async function POST(req: NextRequest) {
     } = await req.json();
     requestSummary = { originZip, destZip, destCountry, weightLbs, lengthIn, widthIn, heightIn };
 
-    const token = await getToken();
+    const token = await getFedexToken();
 
     const payload = {
       accountNumber: { value: process.env.FEDEX_ACCOUNT_NUMBER ?? '' },
@@ -56,7 +39,9 @@ export async function POST(req: NextRequest) {
           },
         },
         pickupType: 'USE_SCHEDULED_PICKUP',
-        rateRequestType: ['LIST'],
+        // ACCOUNT = our negotiated rate (actual cost). LIST would return the
+        // higher published/retail price, not what we actually pay FedEx.
+        rateRequestType: ['ACCOUNT'],
         requestedPackageLineItems: [
           {
             weight: { units: 'LB', value: Number(weightLbs) },
@@ -99,7 +84,12 @@ export async function POST(req: NextRequest) {
     const details: unknown[] = data?.output?.rateReplyDetails ?? [];
 
     const rates = (details as Record<string, unknown>[]).map((d) => {
-      const shipDetail = (d.ratedShipmentDetails as Record<string, unknown>[])?.[0];
+      const detailsArr = (d.ratedShipmentDetails as Record<string, unknown>[]) ?? [];
+      // Prefer the ACCOUNT (negotiated) rated detail; fall back to the first.
+      const shipDetail =
+        detailsArr.find(
+          (x) => x.rateType === 'ACCOUNT' || x.rateType === 'PAYOR_ACCOUNT_PACKAGE'
+        ) ?? detailsArr[0];
       const netCharge =
         (shipDetail?.totalNetFedExCharge as string) ??
         (shipDetail?.totalNetCharge as string) ??

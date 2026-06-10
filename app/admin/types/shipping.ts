@@ -135,35 +135,3 @@ export interface ErrorLogEntry {
   stack?: string;
 }
 
-/** Stored in slpack.settlements — one entry per carrier invoice payment */
-export interface SettlementEntry {
-  id: string;
-  carrier: CarrierKey;
-  amountUSD: number;
-  paidAt: string;        // ISO
-  /** Invoice covers shipments after this timestamp (optional) */
-  periodStart?: string;  // ISO
-  /** Invoice covers shipments up to and including this timestamp.
-   *  Shipments newer than periodEnd remain "owed". When omitted, paidAt is used. */
-  periodEnd?: string;    // ISO
-  invoiceRef?: string;
-  note?: string;
-}
-
-/** One row in the balances API response — a confirmed-charges-minus-payments ledger. */
-export interface CarrierBalance {
-  carrier: CarrierKey;
-  /** Balance owed = confirmed charges − payments made (may be negative if overpaid) */
-  owedUSD: number;
-  /** Total carrier-confirmed (scanned) shipping + insurance charges */
-  confirmedUSD: number;
-  /** Total payments recorded against this carrier */
-  paidUSD: number;
-  /** Count of carrier-confirmed shipments */
-  shipmentCount: number;
-  /** Labels created but not yet scanned — informational only, NOT in the balance */
-  pendingCount: number;
-  /** Oldest confirmed shipment timestamp */
-  oldestUnsettledAt: string | null;
-  lastSettlement: SettlementEntry | null;
-}

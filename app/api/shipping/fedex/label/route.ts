@@ -1,29 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
+import { getFedexToken } from '@/lib/carrierTokens';
 
 const ROUTE = 'shipping/fedex/label';
 
 const BASE = process.env.FEDEX_SANDBOX === 'false'
   ? 'https://apis.fedex.com'
   : 'https://apis-sandbox.fedex.com';
-
-async function getToken(): Promise<string> {
-  const res = await fetch(`${BASE}/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: process.env.FEDEX_CLIENT_ID!,
-      client_secret: process.env.FEDEX_CLIENT_SECRET!,
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`FedEx auth failed (${res.status}): ${body}`);
-  }
-  const data = await res.json();
-  return data.access_token as string;
-}
 
 export async function POST(req: NextRequest) {
   let requestSummary: Record<string, unknown> | undefined;
@@ -50,7 +33,7 @@ export async function POST(req: NextRequest) {
       insured: Boolean(insurance?.enabled),
     };
 
-    const token = await getToken();
+    const token = await getFedexToken();
     const accountNumber = process.env.FEDEX_ACCOUNT_NUMBER;
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 

@@ -23,6 +23,13 @@ const TILES = [
     badge: 'Scan',
   },
   {
+    href: '/admin/pickup',
+    icon: '🚚',
+    title: 'Schedule Pickup',
+    desc: 'Request a FedEx or UPS courier pickup for outbound packages and get a confirmation number.',
+    badge: 'FedEx · UPS',
+  },
+  {
     href: '/admin/log',
     icon: '📋',
     title: 'Shipping Log',

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
+import { getUpsToken } from '@/lib/carrierTokens';
 
 const ROUTE = 'shipping/ups';
 
@@ -22,28 +23,6 @@ const SERVICE_NAMES: Record<string, string> = {
   '65': 'UPS Worldwide Saver',
 };
 
-async function getToken(): Promise<string> {
-  const credentials = Buffer.from(
-    `${process.env.UPS_CLIENT_ID}:${process.env.UPS_CLIENT_SECRET}`
-  ).toString('base64');
-
-  const res = await fetch(`${BASE}/security/v1/oauth/token`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({ grant_type: 'client_credentials' }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`UPS auth failed (${res.status}): ${body}`);
-  }
-  const data = await res.json();
-  return data.access_token as string;
-}
-
 export async function POST(req: NextRequest) {
   let requestSummary: Record<string, unknown> | undefined;
   try {
@@ -62,7 +41,7 @@ export async function POST(req: NextRequest) {
     } = await req.json();
     requestSummary = { originZip, destZip, destCountry, weightLbs, lengthIn, widthIn, heightIn };
 
-    const token = await getToken();
+    const token = await getUpsToken();
 
     // Shop endpoint returns rates for all available services
     const payload = {
@@ -88,6 +67,8 @@ export async function POST(req: NextRequest) {
             Name: 'Storm Lake Pack and Ship',
             Address: { PostalCode: String(originZip), CountryCode: 'US' },
           },
+          // Request our negotiated (account) rates — actual cost, not published.
+          ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
           Package: {
             PackagingType: { Code: '02', Description: 'Package' },
             Dimensions: {
@@ -134,11 +115,14 @@ export async function POST(req: NextRequest) {
     const rates = shipments.map((s) => {
       const code = (s.Service as Record<string, string>)?.Code ?? '';
       const charges = s.TotalCharges as Record<string, string> | undefined;
+      // Negotiated (account) total when available — our actual cost.
+      const negotiated = (s.NegotiatedRateCharges as Record<string, Record<string, string>> | undefined)
+        ?.TotalCharge?.MonetaryValue;
       const guarantee = s.GuaranteedDelivery as Record<string, string> | undefined;
       return {
         serviceCode: code,
         serviceName: SERVICE_NAMES[code] ?? `UPS Service ${code}`,
-        totalChargeUSD: parseFloat(charges?.MonetaryValue ?? '0'),
+        totalChargeUSD: parseFloat(negotiated ?? charges?.MonetaryValue ?? '0'),
         estimatedDays: guarantee?.BusinessDaysInTransit
           ? parseInt(guarantee.BusinessDaysInTransit)
           : null,

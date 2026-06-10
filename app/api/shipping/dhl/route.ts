@@ -90,7 +90,11 @@ export async function POST(req: NextRequest) {
 
     const rates = products.map((p) => {
       const prices = p.totalPrice as Record<string, unknown>[] | undefined;
-      const priceEntry = prices?.[0] as Record<string, unknown> | undefined;
+      // Prefer the USD-denominated total (our billed cost) over the first entry,
+      // which may be in a base or local currency.
+      const priceEntry =
+        (prices?.find((pr) => pr.priceCurrency === 'USD') ??
+          prices?.[0]) as Record<string, unknown> | undefined;
       const deliveryTs = (
         p.deliveryCapabilities as Record<string, string> | undefined
       )?.estimatedDeliveryDateAndTime ?? null;

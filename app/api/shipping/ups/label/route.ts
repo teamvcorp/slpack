@@ -1,33 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
+import { getUpsToken } from '@/lib/carrierTokens';
 
 const ROUTE = 'shipping/ups/label';
 
 const BASE = process.env.UPS_SANDBOX === 'false'
   ? 'https://onlinetools.ups.com'
   : 'https://wwwcie.ups.com';
-
-async function getToken(): Promise<string> {
-  const credentials = Buffer.from(
-    `${process.env.UPS_CLIENT_ID}:${process.env.UPS_CLIENT_SECRET}`
-  ).toString('base64');
-
-  const res = await fetch(`${BASE}/security/v1/oauth/token`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({ grant_type: 'client_credentials' }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`UPS auth failed (${res.status}): ${body}`);
-  }
-  const data = await res.json();
-  return data.access_token as string;
-}
 
 export async function POST(req: NextRequest) {
   let requestSummary: Record<string, unknown> | undefined;
@@ -54,7 +33,7 @@ export async function POST(req: NextRequest) {
       insured: Boolean(insurance?.enabled),
     };
 
-    const token = await getToken();
+    const token = await getUpsToken();
 
     const packageWeight = {
       UnitOfMeasurement: { Code: 'LBS' },

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getShipmentById, markShipmentVoided } from '@/lib/shipmentLog';
+import { getFedexToken, getUpsToken } from '@/lib/carrierTokens';
 import type { CarrierKey } from '@/app/admin/types/shipping';
 
 const ROUTE = 'shipping/void';
@@ -13,38 +14,6 @@ const UPS_BASE = process.env.UPS_SANDBOX === 'false'
   ? 'https://onlinetools.ups.com'
   : 'https://wwwcie.ups.com';
 
-async function fedexToken(): Promise<string> {
-  const res = await fetch(`${FEDEX_BASE}/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: process.env.FEDEX_CLIENT_ID!,
-      client_secret: process.env.FEDEX_CLIENT_SECRET!,
-    }),
-  });
-  if (!res.ok) throw new Error(`FedEx auth failed: ${res.status}`);
-  const data = await res.json();
-  return data.access_token as string;
-}
-
-async function upsToken(): Promise<string> {
-  const credentials = Buffer.from(
-    `${process.env.UPS_CLIENT_ID}:${process.env.UPS_CLIENT_SECRET}`
-  ).toString('base64');
-  const res = await fetch(`${UPS_BASE}/security/v1/oauth/token`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({ grant_type: 'client_credentials' }),
-  });
-  if (!res.ok) throw new Error(`UPS auth failed: ${res.status}`);
-  const data = await res.json();
-  return data.access_token as string;
-}
-
 /** Best-effort carrier-side cancel. Returns status + human-readable message. */
 async function cancelAtCarrier(
   carrier: CarrierKey,
@@ -55,7 +24,7 @@ async function cancelAtCarrier(
       return { status: 'skipped', message: 'FedEx credentials not configured' };
     }
     try {
-      const token = await fedexToken();
+      const token = await getFedexToken();
       const res = await fetch(`${FEDEX_BASE}/ship/v1/shipments/cancel`, {
         method: 'PUT',
         headers: {
@@ -80,7 +49,7 @@ async function cancelAtCarrier(
       return { status: 'skipped', message: 'UPS credentials not configured' };
     }
     try {
-      const token = await upsToken();
+      const token = await getUpsToken();
       // UPS Void Shipment API
       const res = await fetch(
         `${UPS_BASE}/api/shipments/v1/void/cancel/${encodeURIComponent(trackingNumber)}`,

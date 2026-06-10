@@ -1,29 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
+import { getFedexToken } from '@/lib/carrierTokens';
 
 const ROUTE = 'shipping/fedex/validate';
 
 const BASE = process.env.FEDEX_SANDBOX === 'false'
   ? 'https://apis.fedex.com'
   : 'https://apis-sandbox.fedex.com';
-
-async function getToken(): Promise<string> {
-  const res = await fetch(`${BASE}/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: process.env.FEDEX_CLIENT_ID!,
-      client_secret: process.env.FEDEX_CLIENT_SECRET!,
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`FedEx auth failed (${res.status}): ${body}`);
-  }
-  const data = await res.json();
-  return data.access_token as string;
-}
 
 export interface AddressValidationResult {
   valid: boolean;
@@ -81,7 +64,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const token = await getToken();
+    const token = await getFedexToken();
 
     const payload = {
       addressesToValidate: [

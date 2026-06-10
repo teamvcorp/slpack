@@ -1,33 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
+import { getUpsToken } from '@/lib/carrierTokens';
 
 const ROUTE = 'shipping/ups/validate';
 
 const BASE = process.env.UPS_SANDBOX === 'false'
   ? 'https://onlinetools.ups.com'
   : 'https://wwwcie.ups.com';
-
-async function getToken(): Promise<string> {
-  const credentials = Buffer.from(
-    `${process.env.UPS_CLIENT_ID}:${process.env.UPS_CLIENT_SECRET}`
-  ).toString('base64');
-
-  const res = await fetch(`${BASE}/security/v1/oauth/token`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({ grant_type: 'client_credentials' }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`UPS auth failed (${res.status}): ${body}`);
-  }
-  const data = await res.json();
-  return data.access_token as string;
-}
 
 export async function POST(req: NextRequest) {
   let requestSummary: Record<string, unknown> | undefined;
@@ -65,7 +44,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const token = await getToken();
+    const token = await getUpsToken();
 
     // Use RequestOption 3 (street-level) when a street is provided, else 1 (ZIP/city lookup)
     const requestOption = streetLine ? '3' : '1';

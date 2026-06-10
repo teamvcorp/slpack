@@ -123,7 +123,8 @@ export async function POST(req: NextRequest) {
       girth: 0,
       destinationEntryFacilityType: 'NONE',
       rateIndicator: 'SP',
-      priceType: 'RETAIL',
+      // COMMERCIAL = our actual account cost (lower than RETAIL counter prices).
+      priceType: 'COMMERCIAL',
     };
 
     // Query each eligible mail class in parallel; collect errors for diagnostics.
@@ -149,10 +150,6 @@ export async function POST(req: NextRequest) {
           }
           let data: Record<string, unknown>;
           try { data = JSON.parse(body); } catch { return null; }
-          // Log first successful response to verify structure
-          if (code === 'PRIORITY_MAIL' || code === 'USPS_GROUND_ADVANTAGE') {
-            console.log(`USPS ${code} response keys:`, Object.keys(data), '| sample:', body.substring(0, 300));
-          }
           const pricePoints: Record<string, unknown>[] =
             (data?.pricePoints as Record<string, unknown>[] | undefined) ??
             (data?.rates as Record<string, unknown>[] | undefined) ??

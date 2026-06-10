@@ -9,7 +9,7 @@ const NAV = [
   { label: 'Drop-off', href: '/admin/dropoff' },
   { label: 'Shipping Compare', href: '/admin/shipping' },
   { label: 'Reports', href: '/admin/log' },
-  { label: 'Balances', href: '/admin/balances' },
+  { label: 'Pickup', href: '/admin/pickup' },
 ];
 
 export default function AdminNav() {
