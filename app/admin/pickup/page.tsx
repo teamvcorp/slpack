@@ -38,6 +38,7 @@ export default function PickupPage() {
   const [carrier, setCarrier] = useState<'fedex' | 'ups'>('fedex');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [result, setResult] = useState<{ code: string | null; location: string | null; alerts: Alert[] } | null>(null);
 
   function set<K extends keyof typeof form>(key: K, value: string) {
@@ -47,6 +48,7 @@ export default function PickupPage() {
   async function handleSubmit() {
     setSubmitting(true);
     setError(null);
+    setSessionExpired(false);
     setResult(null);
     try {
       const res = await fetch(`/api/shipping/${carrier}/pickup`, {
@@ -76,8 +78,10 @@ export default function PickupPage() {
         }),
       });
       if (res.status === 401) {
-        // Admin session expired — send the cashier to re-authenticate.
-        window.location.href = `/admin/login?from=${encodeURIComponent('/admin/pickup')}`;
+        // Admin session expired — show an inline prompt instead of yanking the
+        // cashier to login and discarding the filled-out form.
+        setSessionExpired(true);
+        setSubmitting(false);
         return;
       }
       const data = await res.json();
@@ -172,6 +176,20 @@ export default function PickupPage() {
       </div>
 
       {error && <div className="mb-4 rounded-xl bg-red/10 px-4 py-3 text-sm text-red">{error}</div>}
+
+      {sessionExpired && (
+        <div className="mb-4 flex flex-col gap-2 rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 sm:flex-row sm:items-center sm:justify-between">
+          <span>Your admin session expired. Log in again — your entries here are kept — then resubmit.</span>
+          <a
+            href="/admin/login"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy/90"
+          >
+            Log in (new tab) ↗
+          </a>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Pickup details */}
