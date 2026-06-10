@@ -153,11 +153,16 @@ export interface SettlementEntry {
 /** One row in the balances API response */
 export interface CarrierBalance {
   carrier: CarrierKey;
+  /** Carrier-confirmed (scanned) amount — the billable portion */
   owedUSD: number;
   shipmentCount: number;
+  /** Oldest unsettled shipment of any status (confirmed or pending) */
   oldestUnsettledAt: string | null;
   lastSettlement: SettlementEntry | null;
   /** Unaccepted (label-only, not yet scanned) totals — informational, not owed */
   pendingUSD: number;
   pendingCount: number;
+  /** All non-voided activity since last payment = owed + pending */
+  totalUSD: number;
+  totalCount: number;
 }

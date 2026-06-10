@@ -208,21 +208,39 @@ export default function BalancesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-navy/40">
                       {CARRIER_LABELS[b.carrier]}
                     </p>
-                    <span className="text-[10px] text-navy/40">{b.shipmentCount} shipments</span>
+                    <span className="text-[10px] text-navy/40">{b.totalCount} shipments</span>
                   </div>
-                  <p className="mt-2 text-3xl font-extrabold text-navy">{fmtMoney(b.owedUSD)}</p>
+                  <p className="mt-2 text-3xl font-extrabold text-navy">{fmtMoney(b.totalUSD)}</p>
                   <p className="mt-1 text-[11px] text-navy/40">
                     {b.oldestUnsettledAt
-                      ? `Since ${fmtDate(b.oldestUnsettledAt)}`
+                      ? `Since last payment · oldest ${fmtDate(b.oldestUnsettledAt)}`
                       : 'Nothing unsettled'}
                   </p>
-                  {b.pendingCount > 0 && (
-                    <p className="mt-1 text-[11px] text-navy/50">
-                      <span className="inline-block rounded-full bg-tan/30 px-2 py-0.5 font-semibold text-navy/70">
-                        Pending
-                      </span>{' '}
-                      {fmtMoney(b.pendingUSD)} · {b.pendingCount} label(s) not yet scanned
-                    </p>
+
+                  {/* Confirmed vs. awaiting-scan breakdown */}
+                  {b.totalCount > 0 && (
+                    <div className="mt-2 space-y-1 border-t border-navy/5 pt-2 text-[11px]">
+                      <div className="flex items-center justify-between text-navy/60">
+                        <span className="inline-flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                          Confirmed (billable)
+                        </span>
+                        <span className="font-semibold text-navy">
+                          {fmtMoney(b.owedUSD)} · {b.shipmentCount}
+                        </span>
+                      </div>
+                      {b.pendingCount > 0 && (
+                        <div className="flex items-center justify-between text-navy/60">
+                          <span className="inline-flex items-center gap-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-tan" />
+                            Awaiting scan
+                          </span>
+                          <span className="font-semibold text-navy/70">
+                            {fmtMoney(b.pendingUSD)} · {b.pendingCount}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   )}
                   <p className="mt-2 text-[11px] text-navy/50">
                     Last paid:{' '}
@@ -235,7 +253,7 @@ export default function BalancesPage() {
                   )}
                   <button
                     type="button"
-                    onClick={() => (isOpen ? setOpenCarrier(null) : openSettleFor(b.carrier, b.owedUSD))}
+                    onClick={() => (isOpen ? setOpenCarrier(null) : openSettleFor(b.carrier, b.totalUSD))}
                     className="mt-3 w-full rounded-lg border border-navy/15 bg-cream px-2 py-1.5 text-xs font-semibold text-navy hover:bg-cream/70"
                   >
                     {isOpen ? 'Cancel' : 'Record Payment'}

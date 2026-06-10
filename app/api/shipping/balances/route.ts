@@ -55,16 +55,16 @@ export async function GET(_req: NextRequest) {
       const accepted = inWindow.filter((s) => s.accepted === true);
       const pending = inWindow.filter((s) => s.accepted !== true);
 
-      const owedUSD = accepted.reduce(
-        (sum, s) => sum + (s.shippingUSD ?? 0) + (s.insuranceUSD ?? 0),
-        0
-      );
-      const pendingUSD = pending.reduce(
-        (sum, s) => sum + (s.shippingUSD ?? 0) + (s.insuranceUSD ?? 0),
-        0
-      );
+      const sumCharges = (rows: typeof inWindow) =>
+        rows.reduce((sum, s) => sum + (s.shippingUSD ?? 0) + (s.insuranceUSD ?? 0), 0);
 
-      const oldest = accepted.reduce<string | null>(
+      const owedUSD = sumCharges(accepted);
+      const pendingUSD = sumCharges(pending);
+      const totalUSD = owedUSD + pendingUSD;
+
+      // "Since" reflects the earliest unsettled shipment of any status, so the
+      // page shows current activity even before carriers scan the packages.
+      const oldest = inWindow.reduce<string | null>(
         (acc, s) => (acc == null || s.timestamp < acc ? s.timestamp : acc),
         null
       );
@@ -77,6 +77,8 @@ export async function GET(_req: NextRequest) {
         lastSettlement: last,
         pendingUSD: Math.round(pendingUSD * 100) / 100,
         pendingCount: pending.length,
+        totalUSD: Math.round(totalUSD * 100) / 100,
+        totalCount: inWindow.length,
       };
     });
 
