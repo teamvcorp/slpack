@@ -100,15 +100,15 @@ export default function DropoffScanPage() {
           >
             Scan on FedEx ↗
           </a>
-          <button
-            type="button"
-            disabled
-            title="UPS scan URL coming soon"
-            className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white opacity-40 shadow-sm"
+          <a
+            href="https://auth.bp.ups.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
             style={{ backgroundColor: '#351C15' }}
           >
             Scan on UPS ↗
-          </button>
+          </a>
         </div>
       </div>
 
