@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
+import { SITE } from '@/lib/siteConfig';
 
 const ROUTE = 'shipping/ups/label';
+
+const ORIGIN = SITE.address;
 
 const BASE = process.env.UPS_SANDBOX === 'false'
   ? 'https://onlinetools.ups.com'
@@ -69,11 +72,11 @@ export async function POST(req: NextRequest) {
             Name: shipment.senderName?.trim() || 'Storm Lake Pack and Ship',
             ShipperNumber: process.env.UPS_ACCOUNT_NUMBER ?? '',
             Address: {
-              AddressLine: ['407 Lake Ave'],
-              City: 'Storm Lake',
-              StateProvinceCode: 'IA',
-              PostalCode: shipment.originZip,
-              CountryCode: 'US',
+              AddressLine: [ORIGIN.street],
+              City: ORIGIN.city,
+              StateProvinceCode: ORIGIN.region,
+              PostalCode: shipment.originZip || ORIGIN.postalCode,
+              CountryCode: ORIGIN.country,
             },
           },
           ShipTo: {
@@ -90,11 +93,11 @@ export async function POST(req: NextRequest) {
           ShipFrom: {
             Name: shipment.senderName?.trim() || 'Storm Lake Pack and Ship',
             Address: {
-              AddressLine: ['407 Lake Ave'],
-              City: 'Storm Lake',
-              StateProvinceCode: 'IA',
-              PostalCode: shipment.originZip,
-              CountryCode: 'US',
+              AddressLine: [ORIGIN.street],
+              City: ORIGIN.city,
+              StateProvinceCode: ORIGIN.region,
+              PostalCode: shipment.originZip || ORIGIN.postalCode,
+              CountryCode: ORIGIN.country,
             },
           },
           PaymentInformation: {
