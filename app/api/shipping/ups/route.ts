@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
+import { SITE } from '@/lib/siteConfig';
 
 const ROUTE = 'shipping/ups';
+
+const ORIGIN_STATE = SITE.address.region;
 
 const BASE = process.env.UPS_SANDBOX === 'false'
   ? 'https://onlinetools.ups.com'
@@ -54,7 +57,11 @@ export async function POST(req: NextRequest) {
           Shipper: {
             Name: 'Storm Lake Pack and Ship',
             ShipperNumber: process.env.UPS_ACCOUNT_NUMBER ?? '',
-            Address: { PostalCode: String(originZip), CountryCode: 'US' },
+            Address: {
+              PostalCode: String(originZip),
+              StateProvinceCode: ORIGIN_STATE,
+              CountryCode: 'US',
+            },
           },
           ShipTo: {
             Name: 'Customer',
@@ -65,7 +72,11 @@ export async function POST(req: NextRequest) {
           },
           ShipFrom: {
             Name: 'Storm Lake Pack and Ship',
-            Address: { PostalCode: String(originZip), CountryCode: 'US' },
+            Address: {
+              PostalCode: String(originZip),
+              StateProvinceCode: ORIGIN_STATE,
+              CountryCode: 'US',
+            },
           },
           // Request our negotiated (account) rates — actual cost, not published.
           ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
