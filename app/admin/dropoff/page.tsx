@@ -101,7 +101,7 @@ export default function DropoffScanPage() {
             Scan on FedEx ↗
           </a>
           <a
-            href="https://auth.bp.ups.com/"
+            href="https://ap.ups.com/REAP/"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
