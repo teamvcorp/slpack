@@ -4,8 +4,6 @@ import { useState, useCallback } from 'react';
 import ShipmentForm from '../components/ShipmentForm';
 import FedExPanel from '../components/carriers/FedExPanel';
 import UPSPanel from '../components/carriers/UPSPanel';
-import USPSPanel from '../components/carriers/USPSPanel';
-import DHLPanel from '../components/carriers/DHLPanel';
 import CarrierDetailModal from '../components/CarrierDetailModal';
 import StripeCheckout from '../components/StripeCheckout';
 import ShippingLabelModal from '../components/ShippingLabelModal';
@@ -115,12 +113,10 @@ export default function ShippingComparisonPage() {
     setModalStep(null);
     setAnyLoading(true);
 
-    // All four carriers fetched concurrently — each panel updates independently
+    // Active carriers fetched concurrently — each panel updates independently
     await Promise.all([
       fetchCarrier('fedex', shipment),
       fetchCarrier('ups', shipment),
-      fetchCarrier('usps', shipment),
-      fetchCarrier('dhl', shipment),
     ]);
 
     setAnyLoading(false);
@@ -211,8 +207,8 @@ export default function ShippingComparisonPage() {
       {/* Shipment form */}
       <ShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} />
 
-      {/* Carrier panels — 1 col mobile, 2 col tablet, 4 col desktop */}
-      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Carrier panels — 1 col mobile, 2 col tablet+ */}
+      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FedExPanel
           result={results.fedex}
           onSelectRate={(r) => handleSelectRate('fedex', r)}
@@ -222,18 +218,6 @@ export default function ShippingComparisonPage() {
         <UPSPanel
           result={results.ups}
           onSelectRate={(r) => handleSelectRate('ups', r)}
-          selectedRateCode={null}
-          retailMode={retailMode}
-        />
-        <USPSPanel
-          result={results.usps}
-          onSelectRate={(r) => handleSelectRate('usps', r)}
-          selectedRateCode={null}
-          retailMode={retailMode}
-        />
-        <DHLPanel
-          result={results.dhl}
-          onSelectRate={(r) => handleSelectRate('dhl', r)}
           selectedRateCode={null}
           retailMode={retailMode}
         />

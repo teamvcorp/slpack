@@ -11,6 +11,7 @@ interface LegacyShipment {
   senderPhone?: string;
   senderEmail?: string;
   destStreet?: string;
+  destStreet2?: string;
   destCity?: string;
   destState?: string;
   destZip?: string;
@@ -259,6 +260,7 @@ export async function POST(req: NextRequest) {
         firstName,
         lastName,
         streetAddress: legacyShipment?.destStreet || '',
+        ...(legacyShipment?.destStreet2?.trim() ? { secondaryAddress: legacyShipment.destStreet2.trim() } : {}),
         city: legacyShipment?.destCity || '',
         state: legacyShipment?.destState || '',
         ZIPCode: legacyToZip.ZIPCode,

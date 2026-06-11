@@ -38,6 +38,7 @@ interface ContactView {
   phone: string;
   email: string;
   street?: string;
+  street2?: string;
   city?: string;
   state?: string;
   zip?: string;
@@ -50,6 +51,7 @@ const DEFAULTS: ShipmentInput = {
   originZip: '50588',
   originCountry: 'US',
   destStreet: '',
+  destStreet2: '',
   destZip: '',
   destCity: '',
   destState: '',
@@ -197,6 +199,7 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
       customerPhone: c.phone,
       customerEmail: c.email,
       destStreet: c.street || prev.destStreet,
+      destStreet2: c.street2 ?? prev.destStreet2,
       destCity: c.city || prev.destCity,
       destState: c.state || prev.destState,
       destZip: c.zip || prev.destZip,
@@ -395,16 +398,28 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         Package &amp; Shipment Details
       </h2>
 
-      {/* ── Row 1: Destination street (full width) ── */}
-      <div className="mb-3">
-        <label className={lbl}>Dest Street Address</label>
-        <input
-          className={input}
-          value={form.destStreet}
-          onChange={(e) => set('destStreet', e.target.value)}
-          maxLength={100}
-          placeholder="123 Main St"
-        />
+      {/* ── Row 1: Destination street + apt/suite ── */}
+      <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_220px]">
+        <div>
+          <label className={lbl}>Dest Street Address</label>
+          <input
+            className={input}
+            value={form.destStreet}
+            onChange={(e) => set('destStreet', e.target.value)}
+            maxLength={100}
+            placeholder="123 Main St"
+          />
+        </div>
+        <div>
+          <label className={lbl}>Apt / Suite (optional)</label>
+          <input
+            className={input}
+            value={form.destStreet2 ?? ''}
+            onChange={(e) => set('destStreet2', e.target.value)}
+            maxLength={100}
+            placeholder="Apt 4B"
+          />
+        </div>
       </div>
 
       {/* ── Row 2: ZIP / City / State / Country / Validate ── */}

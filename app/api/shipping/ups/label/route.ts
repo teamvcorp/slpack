@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
             Name: shipment.customerName || 'Customer',
             Phone: { Number: shipment.customerPhone || '5555555555' },
             Address: {
-              AddressLine: [shipment.destStreet || ''],
+              AddressLine: [shipment.destStreet || '', ...(shipment.destStreet2?.trim() ? [shipment.destStreet2.trim()] : [])],
               City: shipment.destCity || '',
               StateProvinceCode: shipment.destState || '',
               PostalCode: String(shipment.destZip),

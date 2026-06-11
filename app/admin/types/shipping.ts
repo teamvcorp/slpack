@@ -2,6 +2,8 @@ export interface ShipmentInput {
   originZip: string;
   originCountry: string;
   destStreet: string;
+  /** Optional apartment / suite / unit number (second address line) */
+  destStreet2?: string;
   destZip: string;
   destCity: string;
   destState: string;

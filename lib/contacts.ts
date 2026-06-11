@@ -43,6 +43,7 @@ interface RecipientDoc {
   phone: string;
   email: string;
   street: string;
+  street2?: string;
   city: string;
   state: string;
   zip: string;
@@ -58,6 +59,7 @@ export interface ContactView {
   phone: string;
   email: string;
   street?: string;
+  street2?: string;
   city?: string;
   state?: string;
   zip?: string;
@@ -94,6 +96,7 @@ function viewRecipient(r: RecipientDoc): ContactView {
     phone: r.phone,
     email: r.email,
     street: r.street,
+    street2: r.street2,
     city: r.city,
     state: r.state,
     zip: r.zip,
@@ -133,7 +136,7 @@ interface ContactInput {
   sender: { name?: string; phone?: string; email?: string };
   recipient: {
     name?: string; phone?: string; email?: string;
-    street?: string; city?: string; state?: string; zip?: string; country?: string;
+    street?: string; street2?: string; city?: string; state?: string; zip?: string; country?: string;
   };
 }
 
@@ -178,6 +181,7 @@ export async function upsertContacts(input: ContactInput): Promise<{ senderId: s
         phone: r.phone ?? '',
         email: r.email ?? '',
         street: r.street ?? '',
+        street2: r.street2 ?? '',
         city: r.city ?? '',
         state: r.state ?? '',
         zip: r.zip ?? '',

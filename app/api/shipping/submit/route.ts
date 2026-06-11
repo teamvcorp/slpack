@@ -90,6 +90,7 @@ export async function POST(req: NextRequest) {
           phone: shipment.customerPhone ?? '',
           email: shipment.customerEmail ?? '',
           street: shipment.destStreet ?? '',
+          street2: shipment.destStreet2 ?? '',
           city: shipment.destCity ?? '',
           state: shipment.destState ?? '',
           zip: shipment.destZip ?? '',

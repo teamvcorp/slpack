@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
+import { SITE } from '@/lib/siteConfig';
 
 const ROUTE = 'shipping/fedex/label';
+
+const ORIGIN = SITE.address;
 
 const BASE = process.env.FEDEX_SANDBOX === 'false'
   ? 'https://apis.fedex.com'
@@ -59,11 +62,11 @@ export async function POST(req: NextRequest) {
             companyName: 'Storm Lake Pack and Ship',
           },
           address: {
-            streetLines: ['407 Lake Ave'],
-            city: 'Storm Lake',
-            stateOrProvinceCode: 'IA',
-            postalCode: String(shipment.originZip),
-            countryCode: 'US',
+            streetLines: [ORIGIN.street],
+            city: ORIGIN.city,
+            stateOrProvinceCode: ORIGIN.region,
+            postalCode: String(shipment.originZip || ORIGIN.postalCode),
+            countryCode: ORIGIN.country,
           },
         },
         recipients: [
@@ -73,7 +76,7 @@ export async function POST(req: NextRequest) {
               phoneNumber: shipment.customerPhone || '5555555555',
             },
             address: {
-              streetLines: [shipment.destStreet || ''],
+              streetLines: [shipment.destStreet || '', ...(shipment.destStreet2?.trim() ? [shipment.destStreet2.trim()] : [])],
               city: shipment.destCity || '',
               stateOrProvinceCode: shipment.destState || '',
               postalCode: String(shipment.destZip),
