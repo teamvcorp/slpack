@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
       originZip: shipment?.originZip,
       destZip: shipment?.destZip,
       destCountry: shipment?.destCountry,
+      residential: Boolean(shipment?.residential),
       weightLbs: shipment?.weightLbs,
       lengthIn: shipment?.lengthIn,
       widthIn: shipment?.widthIn,
@@ -81,6 +82,8 @@ export async function POST(req: NextRequest) {
               stateOrProvinceCode: shipment.destState || '',
               postalCode: String(shipment.destZip),
               countryCode: String(shipment.destCountry || 'US'),
+              // Match the rate quote: residential delivery carries a surcharge.
+              ...(shipment.residential ? { residential: true } : {}),
             },
           },
         ],

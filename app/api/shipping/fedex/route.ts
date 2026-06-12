@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
     }
 
     const {
-      originZip, destZip, destCountry,
+      originZip, destZip, destCountry, residential,
       weightLbs, lengthIn, widthIn, heightIn,
     } = await req.json();
-    requestSummary = { originZip, destZip, destCountry, weightLbs, lengthIn, widthIn, heightIn };
+    requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn };
 
     const token = await getFedexToken();
 
@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
           address: {
             postalCode: String(destZip),
             countryCode: String(destCountry || 'US'),
+            // Residential deliveries carry a surcharge; omit/false for commercial.
+            ...(residential ? { residential: true } : {}),
           },
         },
         pickupType: 'USE_SCHEDULED_PICKUP',

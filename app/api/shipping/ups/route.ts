@@ -39,10 +39,10 @@ export async function POST(req: NextRequest) {
     }
 
     const {
-      originZip, destZip, destCountry,
+      originZip, destZip, destCountry, residential,
       weightLbs, lengthIn, widthIn, heightIn,
     } = await req.json();
-    requestSummary = { originZip, destZip, destCountry, weightLbs, lengthIn, widthIn, heightIn };
+    requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn };
 
     const token = await getUpsToken();
 
@@ -68,6 +68,9 @@ export async function POST(req: NextRequest) {
             Address: {
               PostalCode: String(destZip),
               CountryCode: String(destCountry || 'US'),
+              // Presence of this element marks a residential delivery (surcharge applies);
+              // omit it entirely for commercial.
+              ...(residential ? { ResidentialAddressIndicator: '' } : {}),
             },
           },
           ShipFrom: {

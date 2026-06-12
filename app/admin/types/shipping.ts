@@ -8,6 +8,8 @@ export interface ShipmentInput {
   destCity: string;
   destState: string;
   destCountry: string;
+  /** True = residential delivery (carrier surcharge applies); false = commercial. */
+  residential: boolean;
   weightLbs: number;
   lengthIn: number;
   widthIn: number;

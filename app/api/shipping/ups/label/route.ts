@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
       originZip: shipment?.originZip,
       destZip: shipment?.destZip,
       destCountry: shipment?.destCountry,
+      residential: Boolean(shipment?.residential),
       weightLbs: shipment?.weightLbs,
       lengthIn: shipment?.lengthIn,
       widthIn: shipment?.widthIn,
@@ -88,6 +89,8 @@ export async function POST(req: NextRequest) {
               StateProvinceCode: shipment.destState || '',
               PostalCode: String(shipment.destZip),
               CountryCode: String(shipment.destCountry || 'US'),
+              // Match the rate quote: presence marks residential (surcharge applies).
+              ...(shipment.residential ? { ResidentialAddressIndicator: '' } : {}),
             },
           },
           ShipFrom: {

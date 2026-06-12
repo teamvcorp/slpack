@@ -56,6 +56,7 @@ const DEFAULTS: ShipmentInput = {
   destCity: '',
   destState: '',
   destCountry: 'US',
+  residential: true,
   weightLbs: 2,
   lengthIn: 12,
   widthIn: 9,
@@ -513,6 +514,34 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
             )}
           </button>
         </div>
+      </div>
+
+      {/* ── Residential vs business — affects UPS/FedEx delivery surcharge ── */}
+      <div className="mt-3 flex items-center gap-2">
+        <span className={lbl + ' mb-0'}>Delivery type</span>
+        <button
+          type="button"
+          onClick={() => set('residential', true)}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+            form.residential
+              ? 'border-green-600 bg-green-600 text-white shadow-sm'
+              : 'border-navy/20 bg-white text-navy/60 hover:border-navy/40'
+          }`}
+        >
+          🏠 Residential
+        </button>
+        <button
+          type="button"
+          onClick={() => set('residential', false)}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+            !form.residential
+              ? 'border-navy bg-navy text-white shadow-sm'
+              : 'border-navy/20 bg-white text-navy/60 hover:border-navy/40'
+          }`}
+        >
+          🏢 Business
+        </button>
+        <span className="text-[11px] text-navy/40">Residential adds a carrier surcharge</span>
       </div>
 
       {/* Address validation result banner */}
