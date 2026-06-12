@@ -15,6 +15,8 @@ export default function RegisterPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cart, setCart] = useState<RegisterLineItem[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
+  // Cashier can exempt a sale from sales tax (e.g. resale / tax-exempt customer).
+  const [taxExempt, setTaxExempt] = useState(false);
 
   // Custom price entry
   const [customPrice, setCustomPrice] = useState('');
@@ -87,7 +89,13 @@ export default function RegisterPage() {
     () => cart.reduce((s, i) => s + i.unitAmountUSD * i.quantity, 0),
     [cart]
   );
-  const tax = useMemo(() => Math.round(subtotal * SALES_TAX_RATE * 100) / 100, [subtotal]);
+  // Effective rate is zero when the sale is marked tax-exempt; the server
+  // re-prices with this same rate, so passing 0 zeroes the tax authoritatively.
+  const effectiveTaxRate = taxExempt ? 0 : SALES_TAX_RATE;
+  const tax = useMemo(
+    () => Math.round(subtotal * effectiveTaxRate * 100) / 100,
+    [subtotal, effectiveTaxRate]
+  );
   const total = Math.round((subtotal + tax) * 100) / 100;
   const itemCount = cart.reduce((s, i) => s + i.quantity, 0);
 
@@ -256,9 +264,22 @@ export default function RegisterPage() {
                 <span>Subtotal</span>
                 <span>{money(subtotal)}</span>
               </div>
-              <div className="flex justify-between text-sm text-navy/60">
-                <span>Tax ({(SALES_TAX_RATE * 100).toFixed(SALES_TAX_RATE * 100 % 1 === 0 ? 0 : 2)}%)</span>
-                <span>{money(tax)}</span>
+              <div className="flex items-center justify-between text-sm text-navy/60">
+                <div className="flex items-center gap-2">
+                  <span>Tax ({(SALES_TAX_RATE * 100).toFixed(SALES_TAX_RATE * 100 % 1 === 0 ? 0 : 2)}%)</span>
+                  <button
+                    type="button"
+                    onClick={() => setTaxExempt((v) => !v)}
+                    className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-all ${
+                      taxExempt
+                        ? 'border-navy/20 bg-white text-navy/50 hover:border-navy/40'
+                        : 'border-green-600 bg-green-600 text-white shadow-sm'
+                    }`}
+                  >
+                    {taxExempt ? 'Tax off' : 'Tax on'}
+                  </button>
+                </div>
+                <span>{taxExempt ? 'Exempt' : money(tax)}</span>
               </div>
               <div className="flex items-center justify-between border-t border-navy/10 pt-2">
                 <span className="text-sm font-semibold text-navy">Total</span>
@@ -280,7 +301,7 @@ export default function RegisterPage() {
       {showCheckout && (
         <RegisterCheckout
           items={cart}
-          taxRate={SALES_TAX_RATE}
+          taxRate={effectiveTaxRate}
           subtotalUSD={subtotal}
           taxUSD={tax}
           totalUSD={total}
