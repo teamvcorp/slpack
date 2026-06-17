@@ -7,6 +7,7 @@ import UPSPanel from '../components/carriers/UPSPanel';
 import CarrierDetailModal from '../components/CarrierDetailModal';
 import StripeCheckout from '../components/StripeCheckout';
 import ShippingLabelModal from '../components/ShippingLabelModal';
+import { retailPrice } from '@/lib/shippingPricing';
 import type {
   ShipmentInput,
   CarrierResult,
@@ -55,9 +56,6 @@ export default function ShippingComparisonPage() {
   const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
   const [formKey, setFormKey] = useState(0);
-  const [retailMode, setRetailMode] = useState(false);
-
-  const RETAIL_MULTIPLIER = 1.3;
 
   const markLoading = useCallback((carrier: CarrierKey) => {
     setResults((prev) => ({
@@ -124,9 +122,8 @@ export default function ShippingComparisonPage() {
 
   function handleSelectRate(carrier: CarrierKey, rate: ShippingRate) {
     if (!currentShipment) return;
-    const chargeRate = retailMode
-      ? { ...rate, totalChargeUSD: Math.round(rate.totalChargeUSD * RETAIL_MULTIPLIER * 100) / 100 }
-      : rate;
+    // Customers are always charged retail (carrier cost × store markup).
+    const chargeRate = { ...rate, totalChargeUSD: retailPrice(rate.totalChargeUSD) };
     setPreviewCarrier({ carrier, rate: chargeRate });
     setModalStep('carrier-detail');
   }
@@ -190,18 +187,9 @@ export default function ShippingComparisonPage() {
             Add one or more packages to the cart, then checkout with card or cash in a single transaction.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setRetailMode((v) => !v)}
-          className={`mt-1 flex shrink-0 items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold transition-all ${
-            retailMode
-              ? 'border-green-600 bg-green-600 text-white shadow-sm'
-              : 'border-navy/20 bg-white text-navy/60 hover:border-navy/40'
-          }`}
-        >
-          <span className={`h-2 w-2 rounded-full ${retailMode ? 'bg-white' : 'bg-navy/30'}`} />
-          {retailMode ? 'Retail +30%' : 'Cost Price'}
-        </button>
+        <span className="mt-1 shrink-0 rounded-full border border-navy/15 bg-cream px-4 py-1.5 text-xs font-semibold text-navy/50">
+          Prices shown at cost and retail (+40%)
+        </span>
       </div>
 
       {/* Shipment form */}
@@ -213,13 +201,11 @@ export default function ShippingComparisonPage() {
           result={results.fedex}
           onSelectRate={(r) => handleSelectRate('fedex', r)}
           selectedRateCode={null}
-          retailMode={retailMode}
         />
         <UPSPanel
           result={results.ups}
           onSelectRate={(r) => handleSelectRate('ups', r)}
           selectedRateCode={null}
-          retailMode={retailMode}
         />
       </div>
 

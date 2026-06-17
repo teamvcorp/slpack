@@ -1,15 +1,15 @@
 "use client";
 
 import type { CarrierResult, ShippingRate } from '../../types/shipping';
+import { retailPrice } from '@/lib/shippingPricing';
 
 interface Props {
   result: CarrierResult;
   onSelectRate: (rate: ShippingRate) => void;
   selectedRateCode: string | null;
-  retailMode?: boolean;
 }
 
-export default function USPSPanel({ result, onSelectRate, selectedRateCode, retailMode }: Props) {
+export default function USPSPanel({ result, onSelectRate, selectedRateCode }: Props) {
   const { loading, error, rates, lastFetched } = result;
 
   return (
@@ -63,11 +63,15 @@ export default function USPSPanel({ result, onSelectRate, selectedRateCode, reta
                         : 'border-navy/10 hover:border-[#004B87]/30 hover:bg-[#004B87]/5'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-medium text-navy">{rate.serviceName}</span>
-                      <span className="text-base font-bold text-[#004B87]">
-                        ${(retailMode ? Math.round(rate.totalChargeUSD * 1.3 * 100) / 100 : rate.totalChargeUSD).toFixed(2)}
-                      </span>
+                      <div className="shrink-0 text-right">
+                        <div className="text-base font-bold text-[#004B87]">
+                          ${retailPrice(rate.totalChargeUSD).toFixed(2)}
+                          <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-navy/40">Retail</span>
+                        </div>
+                        <div className="text-[11px] text-navy/40">Cost ${rate.totalChargeUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     {rate.oversized && (
                       <p className="mt-0.5 text-[11px] font-medium text-amber-600">
