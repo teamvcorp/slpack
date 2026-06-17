@@ -72,9 +72,9 @@ export default function UPSPanel({ result, onSelectRate, selectedRateCode, retai
                     {(rate.estimatedDays || rate.deliveryDate) && (
                       <p className="mt-0.5 text-xs text-navy/40">
                         {rate.estimatedDays
-                          ? `~${rate.estimatedDays} day${rate.estimatedDays !== 1 ? 's' : ''}`
+                          ? `${rate.estimatedDays} business day${rate.estimatedDays !== 1 ? 's' : ''}`
                           : ''}
-                        {rate.deliveryDate ? ` · ${rate.deliveryDate}` : ''}
+                        {rate.deliveryDate ? `${rate.estimatedDays ? ' · ' : ''}${rate.deliveryDate}` : ''}
                       </p>
                     )}
                   </button>

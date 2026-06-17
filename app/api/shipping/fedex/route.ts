@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
+import { fedexTransitToDays, formatDeliveryDate } from '@/lib/transit';
 
 const ROUTE = 'shipping/fedex';
 
@@ -28,8 +29,12 @@ export async function POST(req: NextRequest) {
 
     const token = await getFedexToken();
 
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
     const payload = {
       accountNumber: { value: process.env.FEDEX_ACCOUNT_NUMBER ?? '' },
+      // Ask FedEx to return commit/transit-time details with the rates.
+      rateRequestControlParameters: { returnTransitTimes: true },
       requestedShipment: {
         shipper: { address: { postalCode: String(originZip), countryCode: 'US' } },
         recipient: {
@@ -41,6 +46,7 @@ export async function POST(req: NextRequest) {
           },
         },
         pickupType: 'USE_SCHEDULED_PICKUP',
+        shipDateStamp: today, // lets FedEx compute committed delivery dates
         // ACCOUNT = our negotiated rate (actual cost). LIST would return the
         // higher published/retail price, not what we actually pay FedEx.
         rateRequestType: ['ACCOUNT'],
@@ -96,14 +102,21 @@ export async function POST(req: NextRequest) {
         (shipDetail?.totalNetFedExCharge as string) ??
         (shipDetail?.totalNetCharge as string) ??
         '0';
+      // FedEx returns transit time as an enum ("TWO_DAYS"), under either
+      // commit.transitDays or commit.transitTime depending on the service.
       const commit = d.commit as Record<string, unknown> | undefined;
+      const dateDetail = commit?.dateDetail as Record<string, string> | undefined;
+      const estimatedDays =
+        fedexTransitToDays(commit?.transitDays) ?? fedexTransitToDays(commit?.transitTime);
+      const deliveryDate = formatDeliveryDate(
+        dateDetail?.dayFormat ?? dateDetail?.dayCxsFormat
+      );
       return {
         serviceCode: d.serviceType as string,
         serviceName: (d.serviceName as string) ?? (d.serviceType as string),
         totalChargeUSD: parseFloat(netCharge),
-        estimatedDays: commit?.transitDays ? parseInt(commit.transitDays as string) : null,
-        deliveryDate: (commit as Record<string, Record<string, string>> | undefined)
-          ?.dateDetail?.dayFormat ?? null,
+        estimatedDays,
+        deliveryDate,
       };
     });
 

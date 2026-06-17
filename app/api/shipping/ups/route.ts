@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
+import { formatDeliveryDate } from '@/lib/transit';
 
 const ROUTE = 'shipping/ups';
 
@@ -46,11 +47,17 @@ export async function POST(req: NextRequest) {
 
     const token = await getUpsToken();
 
-    // Shop endpoint returns rates for all available services
+    // Pickup date/time (today) — required for time-in-transit estimates.
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const pickupDate = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+    const pickupTime = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+    // Shoptimeintransit returns rates AND transit times for all available services.
     const payload = {
       RateRequest: {
         Request: {
-          RequestOption: 'Shop',
+          RequestOption: 'Shoptimeintransit',
           TransactionReference: { CustomerContext: 'slpack-rate-compare' },
         },
         Shipment: {
@@ -83,6 +90,15 @@ export async function POST(req: NextRequest) {
           },
           // Request our negotiated (account) rates — actual cost, not published.
           ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
+          // Required for time-in-transit estimates under Shoptimeintransit.
+          DeliveryTimeInformation: {
+            PackageBillType: '03', // non-document
+            Pickup: { Date: pickupDate, Time: pickupTime },
+          },
+          ShipmentTotalWeight: {
+            UnitOfMeasurement: { Code: 'LBS', Description: 'Pounds' },
+            Weight: String(weightLbs),
+          },
           Package: {
             PackagingType: { Code: '02', Description: 'Package' },
             Dimensions: {
@@ -100,7 +116,7 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    const rateRes = await fetch(`${BASE}/api/rating/v2403/Shop`, {
+    const rateRes = await fetch(`${BASE}/api/rating/v2403/Shoptimeintransit`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -132,15 +148,31 @@ export async function POST(req: NextRequest) {
       // Negotiated (account) total when available — our actual cost.
       const negotiated = (s.NegotiatedRateCharges as Record<string, Record<string, string>> | undefined)
         ?.TotalCharge?.MonetaryValue;
+
+      // Prefer time-in-transit data; fall back to GuaranteedDelivery (guaranteed
+      // services only). ServiceSummary may be an array or a single object.
       const guarantee = s.GuaranteedDelivery as Record<string, string> | undefined;
+      const tit = s.TimeInTransit as Record<string, unknown> | undefined;
+      const summaryRaw = (tit?.ServiceSummary ?? []) as unknown;
+      const summary = (Array.isArray(summaryRaw) ? summaryRaw[0] : summaryRaw) as
+        | Record<string, Record<string, Record<string, string>> & Record<string, string>>
+        | undefined;
+      const estArrival = summary?.EstimatedArrival as
+        | { BusinessDaysInTransit?: string; Arrival?: { Date?: string } }
+        | undefined;
+
+      const daysStr = estArrival?.BusinessDaysInTransit ?? guarantee?.BusinessDaysInTransit;
+      const estimatedDays = daysStr ? parseInt(daysStr) || null : null;
+      const deliveryDate = formatDeliveryDate(
+        estArrival?.Arrival?.Date ?? guarantee?.DeliveryByTime
+      );
+
       return {
         serviceCode: code,
         serviceName: SERVICE_NAMES[code] ?? `UPS Service ${code}`,
         totalChargeUSD: parseFloat(negotiated ?? charges?.MonetaryValue ?? '0'),
-        estimatedDays: guarantee?.BusinessDaysInTransit
-          ? parseInt(guarantee.BusinessDaysInTransit)
-          : null,
-        deliveryDate: guarantee?.DeliveryByTime ?? null,
+        estimatedDays,
+        deliveryDate,
       };
     });
 
