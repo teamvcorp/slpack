@@ -1,19 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from 'react';
-import { buildSaleReceiptHtml } from '@/lib/receipt';
+import { buildSaleReceiptHtml, buildShipmentReceiptHtml } from '@/lib/receipt';
 import { printHtml } from './printHtml';
 import type { ReportPeriod } from '@/lib/reportPeriod';
-import type { SaleRecord } from '../types/register';
-
-interface SalesResponse {
-  period: ReportPeriod;
-  entries: SaleRecord[];
-  total: number;
-  totalRevenue: number;
-  totalTax: number;
-  byPayment: Record<string, { count: number; revenue: number }>;
-}
+import type { UnifiedSale, UnifiedSalesResponse } from '../types/reports';
 
 const PERIODS: { key: ReportPeriod; label: string }[] = [
   { key: 'today', label: 'Today' },
@@ -25,13 +16,9 @@ function money(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-function itemsSummary(sale: SaleRecord): string {
-  return sale.items.map((i) => `${i.quantity}× ${i.name}`).join(', ');
-}
-
 export default function SalesReport() {
   const [period, setPeriod] = useState<ReportPeriod>('today');
-  const [data, setData] = useState<SalesResponse | null>(null);
+  const [data, setData] = useState<UnifiedSalesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -41,7 +28,7 @@ export default function SalesReport() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/register/sales?period=${p}`);
+      const res = await fetch(`/api/reports/sales?period=${p}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json());
     } catch (e) {
@@ -55,20 +42,28 @@ export default function SalesReport() {
     fetchSales(period);
   }, [period, fetchSales]);
 
-  async function handleResend(sale: SaleRecord) {
+  function handleReprint(sale: UnifiedSale) {
+    if (sale.source === 'register' && sale.register) {
+      printHtml(buildSaleReceiptHtml(sale.register));
+    } else if (sale.source === 'shipping' && sale.shipment) {
+      printHtml(buildShipmentReceiptHtml(sale.shipment));
+    }
+  }
+
+  async function handleResend(sale: UnifiedSale) {
     const to =
-      sale.customerEmail ??
-      window.prompt('Email this receipt to:')?.trim() ??
-      undefined;
+      (sale.customerEmail || window.prompt('Email this receipt to:')?.trim()) ?? undefined;
     if (!to) return;
 
     setBusyId(sale.id);
     setMessage(null);
     try {
-      const res = await fetch('/api/register/receipt', {
+      const url = sale.source === 'register' ? '/api/register/receipt' : '/api/shipping/receipt';
+      const payload = sale.source === 'register' ? { saleId: sale.id, to } : { id: sale.id, to };
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ saleId: sale.id, to }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -156,6 +151,7 @@ export default function SalesReport() {
                   <thead>
                     <tr className="border-b border-navy/10 bg-cream text-left">
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Date/Time</th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Type</th>
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Items</th>
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Payment</th>
                       <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy/40">Customer</th>
@@ -167,14 +163,30 @@ export default function SalesReport() {
                     {data.entries.map((sale) => {
                       const dt = new Date(sale.timestamp);
                       const isCash = sale.paymentMethod === 'cash';
+                      const isShipping = sale.source === 'shipping';
+                      const isVoided = !!sale.voided;
                       return (
-                        <tr key={sale.id} className="transition-colors hover:bg-cream/50">
+                        <tr key={`${sale.source}-${sale.id}`} className={`transition-colors hover:bg-cream/50 ${isVoided ? 'bg-red/5' : ''}`}>
                           <td className="px-4 py-3 text-navy/60">
-                            <p>{dt.toLocaleDateString()}</p>
+                            <p className={isVoided ? 'line-through' : ''}>{dt.toLocaleDateString()}</p>
                             <p className="text-xs text-navy/30">{dt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>
                           </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                                isShipping ? 'bg-purple-500/10 text-purple-700' : 'bg-navy/10 text-navy'
+                              }`}
+                            >
+                              {isShipping ? 'Shipping' : 'Register'}
+                            </span>
+                            {isVoided && (
+                              <span className="ml-1 inline-block rounded-full bg-red/10 px-2 py-0.5 text-[10px] font-bold uppercase text-red">
+                                Voided
+                              </span>
+                            )}
+                          </td>
                           <td className="max-w-xs px-4 py-3 text-navy">
-                            <p className="truncate" title={itemsSummary(sale)}>{itemsSummary(sale)}</p>
+                            <p className={`truncate ${isVoided ? 'line-through text-navy/40' : ''}`} title={sale.summary}>{sale.summary}</p>
                           </td>
                           <td className="px-4 py-3">
                             <span
@@ -186,17 +198,18 @@ export default function SalesReport() {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <p className="text-xs text-navy/50">{sale.customerEmail || '—'}</p>
+                            <p className="text-xs text-navy/60">{sale.customerName || '—'}</p>
+                            <p className="text-xs text-navy/40">{sale.customerEmail || ''}</p>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <p className="font-bold text-navy">{money(sale.totalUSD)}</p>
+                            <p className={`font-bold text-navy ${isVoided ? 'line-through text-navy/40' : ''}`}>{money(sale.totalUSD)}</p>
                             {sale.taxUSD > 0 && <p className="text-xs text-navy/40">+{money(sale.taxUSD)} tax</p>}
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex justify-end gap-2">
                               <button
                                 type="button"
-                                onClick={() => printHtml(buildSaleReceiptHtml(sale))}
+                                onClick={() => handleReprint(sale)}
                                 className="rounded-lg border border-navy/15 bg-white px-2 py-1 text-xs font-medium text-navy shadow-sm transition-colors hover:bg-cream"
                                 title="Reprint receipt to default printer"
                               >

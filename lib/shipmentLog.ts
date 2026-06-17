@@ -13,6 +13,15 @@ export async function readLog(): Promise<ShipmentLogEntry[]> {
   return col().find({}).sort({ timestamp: -1 }).toArray();
 }
 
+/** Shipments with timestamp >= sinceIso, newest first. */
+export async function readShipmentsSince(sinceIso: string): Promise<ShipmentLogEntry[]> {
+  await client.connect();
+  return col()
+    .find({ timestamp: { $gte: sinceIso } })
+    .sort({ timestamp: -1 })
+    .toArray();
+}
+
 export async function appendLog(entry: ShipmentLogEntry): Promise<void> {
   await client.connect();
   await col().insertOne(entry);
