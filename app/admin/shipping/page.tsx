@@ -188,7 +188,7 @@ export default function ShippingComparisonPage() {
           </p>
         </div>
         <span className="mt-1 shrink-0 rounded-full border border-navy/15 bg-cream px-4 py-1.5 text-xs font-semibold text-navy/50">
-          Prices shown at cost and retail (+40%)
+          Prices shown at cost and retail (+55%)
         </span>
       </div>
 
