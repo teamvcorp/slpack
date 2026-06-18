@@ -1,5 +1,5 @@
 /** Store markup applied to carrier cost to get the customer (retail) price. */
-export const SHIPPING_MARKUP = 1.4; // 40%
+export const SHIPPING_MARKUP = 1.55; // 55%
 
 /** Customer-facing retail price for a given carrier cost (rounded to cents). */
 export function retailPrice(costUSD: number): number {
