@@ -15,6 +15,8 @@ export interface DropoffRecord {
   customerPhone?: string;
   /** Whether a receipt email was sent at scan time */
   receiptEmailed?: boolean;
+  /** Groups packages scanned for the same customer onto one receipt */
+  batchId?: string;
 }
 
 export type DropoffPeriod = 'today' | 'mtd' | 'ytd';

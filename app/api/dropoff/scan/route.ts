@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       customerEmail,
       customerPhone: body.customerPhone ? String(body.customerPhone).trim() : undefined,
       receiptEmailed: false,
+      batchId: body.batchId ? String(body.batchId) : undefined,
     };
 
     // Email the receipt (preferred) when we have an address and Resend is set up.

@@ -26,7 +26,9 @@ export default function DropoffScanPage() {
   const [printReceipt, setPrintReceipt] = useState(false);
 
   const [scans, setScans] = useState<DropoffRecord[]>([]);
+  const [batchId, setBatchId] = useState<string>(() => crypto.randomUUID());
   const [submitting, setSubmitting] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -52,7 +54,9 @@ export default function DropoffScanPage() {
           customerName: customerName.trim() || undefined,
           customerEmail: customerEmail.trim() || undefined,
           customerPhone: customerPhone.trim() || undefined,
-          sendEmail: emailReceipt,
+          batchId,
+          // Receipts are sent once at finalize, not per scan.
+          sendEmail: false,
         }),
       });
       const data = await res.json();
@@ -62,15 +66,11 @@ export default function DropoffScanPage() {
 
       const record = data.record as DropoffRecord;
       setScans((prev) => [record, ...prev]);
-      if (printReceipt) printHtml(buildDropoffReceiptHtml(record));
 
       const label = DROPOFF_CARRIER_LABELS[record.carrier] ?? record.carrier;
-      setMessage(
-        `Logged ${label} ${record.trackingNumber}` +
-          (record.receiptEmailed ? ` · emailed ${record.customerEmail}` : '')
-      );
+      setMessage(`Added ${label} ${record.trackingNumber} — keep scanning, then Finish to receipt.`);
 
-      // Reset for the next scan; keep customer info for batch drop-offs.
+      // Reset for the next scan; keep customer info for the rest of this batch.
       setTracking('');
       setCarrierOverride('');
       trackingRef.current?.focus();
@@ -81,13 +81,56 @@ export default function DropoffScanPage() {
     }
   }
 
+  // Produce a single combined receipt for every package in the batch, then start fresh.
+  async function handleFinish() {
+    if (scans.length === 0 || finishing) return;
+
+    setFinishing(true);
+    setError(null);
+    setMessage(null);
+    try {
+      // Receipt lists oldest-first; `scans` is newest-first.
+      if (printReceipt) printHtml(buildDropoffReceiptHtml([...scans].reverse()));
+
+      const email = customerEmail.trim();
+      let emailedNote = '';
+      if (emailReceipt && email) {
+        const res = await fetch('/api/dropoff/receipt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batchId, customerEmail: email }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`);
+        if (data.emailed) emailedNote = ` · emailed ${email}`;
+      }
+
+      const count = scans.length;
+      setMessage(`Receipt ready for ${count} package${count > 1 ? 's' : ''}${emailedNote}.`);
+
+      // Start a new batch for the next customer.
+      setScans([]);
+      setBatchId(crypto.randomUUID());
+      setCustomerName('');
+      setCustomerEmail('');
+      setCustomerPhone('');
+      setTracking('');
+      setCarrierOverride('');
+      trackingRef.current?.focus();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to generate receipt.');
+    } finally {
+      setFinishing(false);
+    }
+  }
+
   return (
     <div className="py-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-navy">Drop-off Scan</h1>
           <p className="mt-1 text-sm text-navy/50">
-            Scan a prepaid package barcode to log it and send the customer a receipt.
+            Scan all of a customer&apos;s prepaid packages, then Finish to print/email one combined receipt.
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -204,7 +247,7 @@ export default function DropoffScanPage() {
             </div>
           </div>
 
-          {/* Receipt options */}
+          {/* Receipt options — applied once when you Finish the batch */}
           <div className="mt-5 flex flex-wrap items-center gap-4 rounded-xl bg-navy/5 px-4 py-3">
             <span className="text-xs font-semibold uppercase tracking-wide text-navy/50">Receipt</span>
             <label className="flex items-center gap-2 text-sm text-navy/80">
@@ -239,10 +282,10 @@ export default function DropoffScanPage() {
             disabled={submitting || !tracking.trim()}
             className="mt-5 w-full rounded-xl bg-blue px-4 py-3 text-sm font-bold text-white shadow-sm transition-all hover:bg-navy active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {submitting ? 'Saving…' : 'Log drop-off'}
+            {submitting ? 'Saving…' : 'Add package'}
           </button>
           <p className="mt-2 text-center text-[11px] text-navy/40">
-            Tip: a barcode scanner submits automatically — just keep scanning.
+            Tip: a barcode scanner adds each package automatically — keep scanning, then Finish.
           </p>
         </div>
 
@@ -301,6 +344,29 @@ export default function DropoffScanPage() {
                 </ul>
               )}
             </div>
+            {scans.length > 0 && (
+              <div className="border-t border-navy/10 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={handleFinish}
+                  disabled={finishing}
+                  className="w-full rounded-xl bg-green-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition-all hover:bg-green-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {finishing
+                    ? 'Finishing…'
+                    : `Finish · receipt for ${scans.length} package${scans.length > 1 ? 's' : ''}`}
+                </button>
+                <p className="mt-2 text-center text-[11px] text-navy/40">
+                  {printReceipt && emailReceipt
+                    ? 'Prints and emails one combined receipt.'
+                    : printReceipt
+                      ? 'Prints one combined receipt.'
+                      : emailReceipt
+                        ? 'Emails one combined receipt.'
+                        : 'No delivery selected — enable Print or Email above.'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

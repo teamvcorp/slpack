@@ -179,8 +179,10 @@ export function buildShipmentReceiptHtml(entry: ShipmentLogEntry): string {
  * carrier, and date, and links the customer to the carrier's tracking page.
  * Used for both the printed copy and the emailed copy.
  */
-export function buildDropoffReceiptHtml(record: DropoffRecord): string {
-  const date = new Date(record.timestamp);
+export function buildDropoffReceiptHtml(input: DropoffRecord | DropoffRecord[]): string {
+  const records = Array.isArray(input) ? input : [input];
+  const first = records[0];
+  const date = new Date(first.timestamp);
   const dateStr = date.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -188,14 +190,37 @@ export function buildDropoffReceiptHtml(record: DropoffRecord): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-  const carrierLabel = DROPOFF_CARRIER_LABELS[record.carrier] ?? record.carrier;
-  const url = trackingUrl(record.carrier, record.trackingNumber);
-  const trackBlock = url
-    ? `<div style="text-align:center;margin:14px 0;">
+
+  // One block per package: carrier, tracking number, and a per-package track link.
+  const packageBlocks = records
+    .map((record) => {
+      const carrierLabel = DROPOFF_CARRIER_LABELS[record.carrier] ?? record.carrier;
+      const url = trackingUrl(record.carrier, record.trackingNumber);
+      const trackBlock = url
+        ? `<div style="text-align:center;margin:14px 0;">
          <a href="${url}" style="display:inline-block;background:#1a2744;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;padding:10px 18px;border-radius:6px;">Track at ${carrierLabel} →</a>
          <div style="margin-top:6px;font-family:Arial,sans-serif;font-size:10px;color:#888;word-break:break-all;">${url}</div>
        </div>`
-    : `<div style="text-align:center;margin:14px 0;font-family:Arial,sans-serif;font-size:11px;color:#888;">Track with ${carrierLabel} using your tracking number.</div>`;
+        : `<div style="text-align:center;margin:14px 0;font-family:Arial,sans-serif;font-size:11px;color:#888;">Track with ${carrierLabel} using your tracking number.</div>`;
+
+      return `<div style="border-bottom:1px dashed #ddd;padding-bottom:10px;margin-bottom:10px;">
+    <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;">Carrier</div>
+    <div style="font-size:15px;font-weight:bold;margin-bottom:8px;">${esc(carrierLabel)}</div>
+
+    <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;">Tracking Number</div>
+    <div style="font-size:15px;font-weight:bold;letter-spacing:0.04em;word-break:break-all;">${esc(record.trackingNumber)}</div>
+
+    ${trackBlock}
+  </div>`;
+    })
+    .join('');
+
+  const count = records.length;
+  const subtitle = count > 1 ? `Drop-off Receipt · ${count} packages` : 'Drop-off Receipt';
+  const closing =
+    count > 1
+      ? `These ${count} packages were accepted for drop-off.<br>Thank you!`
+      : 'This package was accepted for drop-off.<br>Thank you!';
 
   return `<!DOCTYPE html>
 <html>
@@ -211,22 +236,16 @@ export function buildDropoffReceiptHtml(record: DropoffRecord): string {
   <div style="max-width:320px;margin:0 auto;">
     <div style="text-align:center;border-bottom:1px dashed #aaa;padding-bottom:10px;margin-bottom:10px;">
       <div style="font-size:17px;font-weight:bold;">${SHOP_NAME}</div>
-      <div style="font-size:11px;color:#666;margin-top:2px;">Drop-off Receipt</div>
+      <div style="font-size:11px;color:#666;margin-top:2px;">${subtitle}</div>
       <div style="font-size:11px;color:#666;">${dateStr}</div>
     </div>
 
-    ${record.customerName ? `<div style="font-size:12px;margin-bottom:8px;">Customer: ${esc(record.customerName)}</div>` : ''}
+    ${first.customerName ? `<div style="font-size:12px;margin-bottom:8px;">Customer: ${esc(first.customerName)}</div>` : ''}
 
-    <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;">Carrier</div>
-    <div style="font-size:15px;font-weight:bold;margin-bottom:8px;">${esc(carrierLabel)}</div>
-
-    <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;">Tracking Number</div>
-    <div style="font-size:15px;font-weight:bold;letter-spacing:0.04em;word-break:break-all;">${esc(record.trackingNumber)}</div>
-
-    ${trackBlock}
+    ${packageBlocks}
 
     <div style="text-align:center;border-top:1px dashed #aaa;margin-top:12px;padding-top:10px;font-size:11px;color:#666;">
-      This package was accepted for drop-off.<br>Thank you!
+      ${closing}
     </div>
   </div>
 </body>

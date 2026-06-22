@@ -21,3 +21,15 @@ export async function readDropoffsSince(sinceIso: string): Promise<DropoffRecord
     .sort({ timestamp: -1 })
     .toArray();
 }
+
+/** All drop-offs in a batch (same customer, one receipt), oldest first. */
+export async function readDropoffsByBatch(batchId: string): Promise<DropoffRecord[]> {
+  await client.connect();
+  return col().find({ batchId }).sort({ timestamp: 1 }).toArray();
+}
+
+/** Mark every record in a batch as having had its receipt emailed. */
+export async function markBatchEmailed(batchId: string): Promise<void> {
+  await client.connect();
+  await col().updateMany({ batchId }, { $set: { receiptEmailed: true } });
+}
