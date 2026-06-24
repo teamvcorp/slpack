@@ -40,6 +40,7 @@ export const SITE = {
     'Printing & copy services',
     'Mailbox rental',
     'Bulk & business shipping',
+    'Website building & hosting',
   ],
   keywords: [
     'Storm Lake Pack and Ship',

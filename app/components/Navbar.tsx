@@ -11,6 +11,7 @@ export default function Navbar() {
     { label: "Shipping", href: "#shipping" },
     { label: "Packing", href: "#packing" },
     { label: "Solutions", href: "#solutions" },
+    { label: "Websites", href: "#webdev" },
   ];
 
   return (

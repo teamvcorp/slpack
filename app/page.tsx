@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import Card from "./components/Card";
 import AskForm from "./components/AskForm";
+import WebsiteQuoteForm from "./components/WebsiteQuoteForm";
 import { Footer } from "./components/Footer";
 import AdminShortcut from "./components/AdminShortcut";
 import { SITE, localBusinessJsonLd } from "@/lib/siteConfig";
@@ -166,6 +167,54 @@ export default function Home() {
                   "24/7 access options",
                 ]}
               />
+            </div>
+          </section>
+
+          {/* Website building & hosting section */}
+          <section id="webdev" className="bg-[#EBF7FF] px-8 py-16">
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="text-sm font-semibold uppercase tracking-widest text-blue">New Service</p>
+              <h2 className="mt-2 text-3xl font-bold text-navy">Website Building &amp; Hosting</h2>
+              <p className="mt-4 text-lg leading-relaxed text-navy/70">
+                A clean, professional website for your business — designed, built, and hosted by us.
+              </p>
+              <p className="mt-3 inline-block rounded-full bg-blue/10 px-4 py-1.5 text-sm font-semibold text-blue">
+                Starting at $150/year
+              </p>
+            </div>
+
+            <div className="mt-12 flex flex-col items-start gap-12 lg:flex-row">
+              {/* Pitch + what's included */}
+              <div className="flex-1 space-y-6">
+                <p className="text-navy/70">
+                  Tell us about your business and we&apos;ll handle the rest — from design to
+                  going live. Already have a logo or domain? Share it below and we&apos;ll build around it.
+                </p>
+                <ul className="space-y-3 text-sm text-navy/80">
+                  {[
+                    "Custom design built around your brand",
+                    "Reliable hosting included — no extra setup",
+                    "Mobile-friendly and search-ready",
+                    "Use your existing logo & domain, or we'll create them",
+                  ].map((item) => (
+                    <li key={item} className="flex items-start gap-3">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue/10 text-xs text-blue">✓</span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Quote form */}
+              <div className="flex-1">
+                <div className="rounded-xl bg-white p-6 shadow-sm">
+                  <h3 className="text-lg font-semibold text-navy">Tell us about your project</h3>
+                  <p className="mt-1 text-sm text-navy/60">
+                    Share a few details and our web team will follow up with a quote.
+                  </p>
+                  <WebsiteQuoteForm />
+                </div>
+              </div>
             </div>
           </section>
 
