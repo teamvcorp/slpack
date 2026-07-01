@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
+import { normalizePostal } from '@/lib/postal';
 
 const ROUTE = 'shipping/ups/label';
 
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
               AddressLine: [shipment.destStreet || '', ...(shipment.destStreet2?.trim() ? [shipment.destStreet2.trim()] : [])],
               City: shipment.destCity || '',
               StateProvinceCode: shipment.destState || '',
-              PostalCode: String(shipment.destZip),
+              PostalCode: normalizePostal(shipment.destZip, shipment.destCountry),
               CountryCode: String(shipment.destCountry || 'US'),
               // Match the rate quote: presence marks residential (surcharge applies).
               ...(shipment.residential ? { ResidentialAddressIndicator: '' } : {}),

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
 import { fedexTransitToDays, formatDeliveryDate } from '@/lib/transit';
+import { normalizePostal } from '@/lib/postal';
 
 const ROUTE = 'shipping/fedex';
 
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
         shipper: { address: { postalCode: String(originZip), countryCode: 'US' } },
         recipient: {
           address: {
-            postalCode: String(destZip),
+            postalCode: normalizePostal(destZip, destCountry),
             countryCode: String(destCountry || 'US'),
             // Residential deliveries carry a surcharge; omit/false for commercial.
             ...(residential ? { residential: true } : {}),

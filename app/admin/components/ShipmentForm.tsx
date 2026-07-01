@@ -27,6 +27,7 @@ interface Props {
 interface AddressResult {
   valid: boolean;
   status: string;
+  addressType?: 'residential' | 'commercial' | 'unknown';
   suggested: { streetLine: string; city: string; state: string; zip: string; country: string } | null;
   messages: string[];
 }
@@ -323,6 +324,25 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
         ...(fedex?.messages ?? []),
         ...(ups?.messages ?? []),
       ].filter((m: string) => !m.includes('only available for') && !m.includes('SKIPPED'));
+
+      // Auto-detect residential vs business (residential delivery carries a surcharge).
+      // If either carrier flags residential, prefer that — safer than under-quoting.
+      const types = [fedex?.addressType, ups?.addressType].filter(
+        (t): t is 'residential' | 'commercial' => t === 'residential' || t === 'commercial'
+      );
+      const detected = types.includes('residential')
+        ? 'residential'
+        : types.includes('commercial')
+          ? 'commercial'
+          : 'unknown';
+      if (detected === 'commercial') {
+        set('residential', false);
+        allMessages.push('Detected a business address — commercial rates applied.');
+      } else if (detected === 'residential') {
+        set('residential', true);
+        allMessages.push('Detected a residential address — residential rates applied.');
+      }
+
       const uniqueMessages = [...new Set(allMessages)];
 
       setAddrResult({ ...primary, messages: uniqueMessages });

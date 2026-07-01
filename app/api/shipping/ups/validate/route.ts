@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
+import { normalizePostal } from '@/lib/postal';
 
 const ROUTE = 'shipping/ups/validate';
 
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         valid: true,
         status: 'SKIPPED',
+        addressType: 'unknown',
         suggested: null,
         messages: ['UPS address validation is only available for US addresses'],
       });
@@ -49,7 +51,7 @@ export async function POST(req: NextRequest) {
     // Use RequestOption 3 (street-level) when a street is provided, else 1 (ZIP/city lookup)
     const requestOption = streetLine ? '3' : '1';
     const addrKeyFormat: Record<string, unknown> = {
-      PostcodePrimaryLow: String(zip),
+      PostcodePrimaryLow: normalizePostal(zip, countryCode),
       CountryCode: countryCode,
     };
     if (streetLine) addrKeyFormat.AddressLine = [String(streetLine)];
@@ -100,6 +102,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         valid: false,
         status: 'UNRESOLVED',
+        addressType: 'unknown',
         suggested: null,
         messages: ['No address match found — verify street, city, and ZIP'],
       });
@@ -110,6 +113,14 @@ export async function POST(req: NextRequest) {
 
     const best = candidateList[0];
     const addr = best?.AddressKeyFormat;
+
+    // UPS AddressClassification: Code 1 = Commercial, 2 = Residential, 0/absent = unknown.
+    // Only returned for street-level lookups (RequestOption 3, i.e. when a street is supplied).
+    const upsClassCode = String(
+      best?.AddressClassification?.Code ?? response?.AddressClassification?.Code ?? ''
+    );
+    const addressType: 'residential' | 'commercial' | 'unknown' =
+      upsClassCode === '1' ? 'commercial' : upsClassCode === '2' ? 'residential' : 'unknown';
 
     const suggestedStreet: string = Array.isArray(addr?.AddressLine)
       ? addr.AddressLine[0]
@@ -130,6 +141,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       valid: isValidated,
       status: isValidated ? 'VALIDATED' : isAmbiguous ? 'AMBIGUOUS' : 'UNRESOLVED',
+      addressType,
       suggested: hasSuggestion
         ? {
             streetLine: suggestedStreet,

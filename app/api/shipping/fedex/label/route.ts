@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
+import { normalizePostal } from '@/lib/postal';
 
 const ROUTE = 'shipping/fedex/label';
 
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
               streetLines: [shipment.destStreet || '', ...(shipment.destStreet2?.trim() ? [shipment.destStreet2.trim()] : [])],
               city: shipment.destCity || '',
               stateOrProvinceCode: shipment.destState || '',
-              postalCode: String(shipment.destZip),
+              postalCode: normalizePostal(shipment.destZip, shipment.destCountry),
               countryCode: String(shipment.destCountry || 'US'),
               // Match the rate quote: residential delivery carries a surcharge.
               ...(shipment.residential ? { residential: true } : {}),

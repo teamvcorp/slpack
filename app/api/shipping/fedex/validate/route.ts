@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
+import { normalizePostal } from '@/lib/postal';
 
 const ROUTE = 'shipping/fedex/validate';
 
@@ -12,6 +13,8 @@ export interface AddressValidationResult {
   valid: boolean;
   /** 'VALIDATED' | 'STANDARDIZED' | 'UNRESOLVED' */
   status: string;
+  /** Business/residential classification (drives the residential surcharge). */
+  addressType?: 'residential' | 'commercial' | 'unknown';
   /** Suggested corrected address fields from FedEx */
   suggested: {
     streetLine: string;
@@ -73,7 +76,7 @@ export async function POST(req: NextRequest) {
             streetLines: streetLine ? [String(streetLine)] : [],
             city: city ? String(city) : undefined,
             stateOrProvinceCode: state ? String(state) : undefined,
-            postalCode: String(zip),
+            postalCode: normalizePostal(zip, country),
             countryCode: String(country || 'US'),
           },
         },
@@ -119,6 +122,12 @@ export async function POST(req: NextRequest) {
 
     const classification: string = resolved?.classification ?? '';
     const attributes: Record<string, string> = resolved?.attributes ?? {};
+
+    // FedEx classification enum: BUSINESS | RESIDENTIAL | MIXED | UNKNOWN.
+    // Map to our residential-surcharge flag; MIXED/UNKNOWN stay 'unknown' (user decides).
+    const classUpper = classification.toUpperCase();
+    const addressType: 'residential' | 'commercial' | 'unknown' =
+      classUpper === 'BUSINESS' ? 'commercial' : classUpper === 'RESIDENTIAL' ? 'residential' : 'unknown';
     const isValid =
       classification === 'VALIDATED_STANDARDIZED_ADDRESS' ||
       classification === 'STANDARDIZED_ADDRESS' ||
@@ -141,6 +150,7 @@ export async function POST(req: NextRequest) {
     const result: AddressValidationResult = {
       valid: isValid,
       status: classification || (isValid ? 'VALIDATED' : 'UNRESOLVED'),
+      addressType,
       suggested:
         suggestedStreet || suggestedCity || suggestedZip
           ? {

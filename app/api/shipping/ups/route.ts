@@ -3,6 +3,7 @@ import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { formatDeliveryDate } from '@/lib/transit';
+import { normalizePostal } from '@/lib/postal';
 
 const ROUTE = 'shipping/ups';
 
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
           ShipTo: {
             Name: 'Customer',
             Address: {
-              PostalCode: String(destZip),
+              PostalCode: normalizePostal(destZip, destCountry),
               CountryCode: String(destCountry || 'US'),
               // Presence of this element marks a residential delivery (surcharge applies);
               // omit it entirely for commercial.
