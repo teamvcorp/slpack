@@ -128,10 +128,22 @@ export async function POST(req: NextRequest) {
     const classUpper = classification.toUpperCase();
     const addressType: 'residential' | 'commercial' | 'unknown' =
       classUpper === 'BUSINESS' ? 'commercial' : classUpper === 'RESIDENTIAL' ? 'residential' : 'unknown';
-    const isValid =
-      classification === 'VALIDATED_STANDARDIZED_ADDRESS' ||
-      classification === 'STANDARDIZED_ADDRESS' ||
-      attributes['Resolved'] === 'true';
+    // Deliverability signals. FedEx returns attribute values as "true"/"false" strings.
+    // (The old code compared `classification` to address-status strings, but that field
+    //  actually holds BUSINESS/RESIDENTIAL — see addressType above — so validity now reads
+    //  the real resolution attributes instead.)
+    const attrTrue = (k: string) => String(attributes[k] ?? '').toLowerCase() === 'true';
+    const resolvedOk = attrTrue('Resolved');
+    const dpvRaw = attributes['DPV']; // Delivery Point Valid — the deliverability signal
+    const dpvOk = dpvRaw === undefined || String(dpvRaw).toLowerCase() === 'true'; // absent ⇒ don't over-reject
+    const interpolated = attrTrue('InterpolatedStreetAddress'); // street number estimated — may be wrong
+    const suiteMissing = attrTrue('SuiteRequiredButMissing');
+    const invalidSuite = attrTrue('InvalidSuiteNumber');
+
+    // Fully deliverable only when resolved, delivery-point-valid, exact (not interpolated),
+    // and free of suite problems. Flagging the rest here lets staff fix the address before
+    // it ships — avoiding carrier address-correction fees and delivery delays downstream.
+    const isValid = resolvedOk && dpvOk && !interpolated && !suiteMissing && !invalidSuite;
 
     // Extract suggested address from resolved response
     const suggestedStreet: string = resolved?.streetLinesToken?.[0] ?? '';
@@ -143,13 +155,16 @@ export async function POST(req: NextRequest) {
     // Build advisory messages from attributes
     const messages: string[] = [];
     if (attributes['DPV_Vacant'] === 'Y') messages.push('Address appears vacant');
-    if (attributes['SuiteRequiredButMissing'] === 'true') messages.push('Suite/apt number may be required');
+    if (suiteMissing) messages.push('Suite/apt number may be required');
+    if (invalidSuite) messages.push('Suite/apt number appears invalid');
+    if (interpolated) messages.push('Street number is approximate — verify it before shipping');
+    if (dpvRaw !== undefined && !dpvOk) messages.push('Not confirmed as a deliverable address');
     if (attributes['AddressType'] === 'PO_BOX') messages.push('PO Box detected');
     if (!isValid) messages.push('Address could not be fully validated — verify before shipping');
 
     const result: AddressValidationResult = {
       valid: isValid,
-      status: classification || (isValid ? 'VALIDATED' : 'UNRESOLVED'),
+      status: isValid ? 'VALIDATED' : 'UNRESOLVED',
       addressType,
       suggested:
         suggestedStreet || suggestedCity || suggestedZip
