@@ -115,6 +115,136 @@ export function buildSaleReceiptHtml(sale: SaleRecord): string {
 </html>`;
 }
 
+/** One shipping package line on a combined receipt. */
+export interface CombinedPackageLine {
+  carrier: string;
+  serviceName: string;
+  trackingNumber: string | null;
+  amountUSD: number;
+}
+
+export interface CombinedReceiptData {
+  timestamp: string; // ISO
+  paymentMethod: 'card' | 'cash';
+  /** Goods portion (register items); null for a shipping-only transaction. */
+  sale: SaleRecord | null;
+  /** Shipping packages on this transaction. */
+  packages: CombinedPackageLine[];
+  cashTenderedUSD?: number;
+  changeDueUSD?: number;
+}
+
+/**
+ * One unified receipt for a combined register + shipping sale: retail items
+ * (with tax) and shipping packages (with tracking) under a single grand total.
+ * Thermal-sized (~80mm) and inline-styled, so it prints and emails identically.
+ */
+export function buildCombinedReceiptHtml(data: CombinedReceiptData): string {
+  const { sale, packages } = data;
+  const date = new Date(data.timestamp);
+  const dateStr = date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+  const goodsTotal = sale?.totalUSD ?? 0;
+  const shippingTotal = packages.reduce((s, p) => s + p.amountUSD, 0);
+  const grandTotal = Math.round((goodsTotal + shippingTotal) * 100) / 100;
+
+  // ── Goods section (only when there are retail items) ───────────────────────
+  let goodsBlock = '';
+  if (sale && sale.items.length > 0) {
+    const itemRows = sale.items
+      .map((it) => {
+        const qtyName =
+          it.quantity > 1
+            ? `${esc(it.name)} <span style="color:#888;">× ${it.quantity}</span>`
+            : esc(it.name);
+        return `<tr>
+          <td style="padding:3px 0;vertical-align:top;">${qtyName}</td>
+          <td style="padding:3px 0;text-align:right;vertical-align:top;white-space:nowrap;">${money(it.lineTotalUSD)}</td>
+        </tr>`;
+      })
+      .join('');
+    const taxRow =
+      sale.taxUSD > 0
+        ? `<tr><td style="padding:2px 0;color:#555;">Tax</td><td style="padding:2px 0;text-align:right;">${money(sale.taxUSD)}</td></tr>`
+        : '';
+    goodsBlock = `<div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;margin-top:4px;">Items</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">${itemRows}</table>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;color:#555;margin-top:4px;">
+      <tr><td style="padding:2px 0;">Subtotal</td><td style="padding:2px 0;text-align:right;">${money(sale.subtotalUSD)}</td></tr>
+      ${taxRow}
+    </table>`;
+  }
+
+  // ── Shipping section ───────────────────────────────────────────────────────
+  let shippingBlock = '';
+  if (packages.length > 0) {
+    const pkgRows = packages
+      .map((p) => {
+        const carrierLabel = CARRIER_LABELS[p.carrier as CarrierKey] ?? p.carrier.toUpperCase();
+        const tracking = p.trackingNumber && p.trackingNumber !== 'PENDING'
+          ? `<div style="font-size:11px;color:#888;word-break:break-all;">${esc(p.trackingNumber)}</div>`
+          : `<div style="font-size:11px;color:#b45309;">Label pending</div>`;
+        return `<tr>
+          <td style="padding:3px 0;vertical-align:top;">${esc(carrierLabel)} — ${esc(p.serviceName)}${tracking}</td>
+          <td style="padding:3px 0;text-align:right;vertical-align:top;white-space:nowrap;">${money(p.amountUSD)}</td>
+        </tr>`;
+      })
+      .join('');
+    shippingBlock = `<div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;margin-top:10px;">Shipping</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">${pkgRows}</table>`;
+  }
+
+  const paymentLabel = data.paymentMethod === 'cash' ? 'Cash' : 'Card';
+  const cashRows =
+    data.paymentMethod === 'cash' && data.cashTenderedUSD != null
+      ? `<tr><td style="padding:2px 0;color:#555;">Tendered</td><td style="padding:2px 0;text-align:right;">${money(data.cashTenderedUSD)}</td></tr>
+         <tr><td style="padding:2px 0;color:#555;">Change</td><td style="padding:2px 0;text-align:right;">${money(data.changeDueUSD ?? 0)}</td></tr>`
+      : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receipt</title>
+<style>
+  @media print { @page { margin: 6mm; } body { margin: 0; } .no-print { display: none !important; } }
+</style>
+</head>
+<body style="font-family:'Courier New',ui-monospace,monospace;color:#111;margin:0;padding:12px;">
+  <div style="max-width:300px;margin:0 auto;">
+    <div style="text-align:center;border-bottom:1px dashed #aaa;padding-bottom:10px;margin-bottom:10px;">
+      <div style="font-size:17px;font-weight:bold;">${SHOP_NAME}</div>
+      <div style="font-size:11px;color:#666;margin-top:2px;">Sales Receipt</div>
+      <div style="font-size:11px;color:#666;">${dateStr}</div>
+    </div>
+
+    ${goodsBlock}
+    ${shippingBlock}
+
+    <table style="width:100%;border-collapse:collapse;font-size:13px;border-top:1px dashed #aaa;margin-top:10px;padding-top:6px;">
+      <tr style="border-top:1px solid #111;">
+        <td style="padding:6px 0 0;font-weight:bold;font-size:15px;">Total</td>
+        <td style="padding:6px 0 0;text-align:right;font-weight:bold;font-size:15px;">${money(grandTotal)}</td>
+      </tr>
+      <tr><td style="padding:6px 0 2px;color:#555;">Paid</td><td style="padding:6px 0 2px;text-align:right;">${paymentLabel}</td></tr>
+      ${cashRows}
+    </table>
+
+    <div style="text-align:center;border-top:1px dashed #aaa;margin-top:12px;padding-top:10px;font-size:11px;color:#666;">
+      Thank you for your business!
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 /**
  * Builds a customer shipping receipt from a stored shipment log entry. Used for
  * both the email sent at purchase time and later reprint/resend from the Sales

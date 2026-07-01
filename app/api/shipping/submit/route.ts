@@ -23,34 +23,42 @@ export async function POST(req: NextRequest) {
       totalUSD,
       insurance,
       paymentMethod,
+      transactionId,
+      suppressEmail,
     } = await req.json();
 
     // ── 1. Generate label via carrier API ───────────────────────────────────
+    // Attempt twice: carrier label APIs occasionally throw transient errors, and
+    // a one-off failure shouldn't leave a paid shipment without a label. Both
+    // attempts happen before we log, so a retry never creates a duplicate entry.
     let trackingNumber = 'PENDING';
     let labelBase64: string | null = null;
     let labelMimeType: string | null = null;
     let labelError: string | null = null;
 
-    try {
-      const labelRes = await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'}/api/shipping/${carrier}/label`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', [INTERNAL_HEADER]: internalApiToken() },
-          body: JSON.stringify({ shipment, serviceCode, insurance }),
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      labelError = null;
+      try {
+        const labelRes = await fetch(
+          `${process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'}/api/shipping/${carrier}/label`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', [INTERNAL_HEADER]: internalApiToken() },
+            body: JSON.stringify({ shipment, serviceCode, insurance }),
+          }
+        );
+        const labelData = await labelRes.json();
+        if (labelRes.ok) {
+          trackingNumber = labelData.trackingNumber ?? 'PENDING';
+          labelBase64 = labelData.labelBase64 ?? null;
+          labelMimeType = labelData.labelMimeType ?? null;
+          break;
         }
-      );
-      const labelData = await labelRes.json();
-      if (labelRes.ok) {
-        trackingNumber = labelData.trackingNumber ?? 'PENDING';
-        labelBase64 = labelData.labelBase64 ?? null;
-        labelMimeType = labelData.labelMimeType ?? null;
-      } else {
         const detail = labelData.details ? ` — ${labelData.details}` : '';
         labelError = (labelData.error ?? `Label API error (${labelRes.status})`) + detail;
+      } catch (err: unknown) {
+        labelError = err instanceof Error ? err.message : 'Label generation failed';
       }
-    } catch (err: unknown) {
-      labelError = err instanceof Error ? err.message : 'Label generation failed';
     }
 
     // ── 2. Append to shipment log ────────────────────────────────────────────
@@ -74,6 +82,7 @@ export async function POST(req: NextRequest) {
       customerPhone: shipment.customerPhone ?? '',
       customerEmail: shipment.customerEmail ?? '',
       paymentMethod: (paymentMethod === 'cash' ? 'cash' : 'card') as 'card' | 'cash',
+      transactionId: typeof transactionId === 'string' ? transactionId : undefined,
     };
 
     await appendLog(entry);
@@ -103,8 +112,10 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 4. Send receipt email via Resend ─────────────────────────────────────
+    // Combined register+shipping sales email one unified receipt from the
+    // checkout flow, so the per-package email is suppressed here.
     const recipientEmail = sanitizeEmail(shipment.customerEmail);
-    if (recipientEmail && process.env.RESEND_API_KEY) {
+    if (recipientEmail && suppressEmail !== true && process.env.RESEND_API_KEY) {
       try {
         const { Resend } = await import('resend');
         const resend = new Resend(process.env.RESEND_API_KEY);

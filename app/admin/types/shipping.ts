@@ -100,6 +100,8 @@ export interface ShipmentLogEntry {
   customerPhone: string;
   customerEmail: string;
   paymentMethod?: 'card' | 'cash';
+  /** Ties this shipment to a combined register+shipping transaction (one charge, one receipt) */
+  transactionId?: string;
   /** Sender info captured when creating the shipment (for re-creating ship-from contact) */
   senderName?: string;
   senderPhone?: string;

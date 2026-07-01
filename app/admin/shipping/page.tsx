@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { stashShippingCart } from '@/lib/comboHandoff';
 import ShipmentForm from '../components/ShipmentForm';
 import FedExPanel from '../components/carriers/FedExPanel';
 import UPSPanel from '../components/carriers/UPSPanel';
@@ -47,6 +49,7 @@ const CARRIER_COLORS: Record<CarrierKey, string> = {
 };
 
 export default function ShippingComparisonPage() {
+  const router = useRouter();
   const [results, setResults] = useState<Record<CarrierKey, CarrierResult>>(INITIAL_RESULTS);
   const [currentShipment, setCurrentShipment] = useState<ShipmentInput | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -172,6 +175,14 @@ export default function ShippingComparisonPage() {
     setModalStep(null);
   }
 
+  // Hand the built packages to the register so retail + shipping are charged
+  // together in one sale, on one receipt.
+  function handleAddToRegister() {
+    if (cart.length === 0) return;
+    stashShippingCart(cart);
+    router.push('/admin/register');
+  }
+
   const cartTotal = cart.reduce(
     (s, i) => s + i.rate.totalChargeUSD + (i.insurance?.premiumUSD ?? 0),
     0
@@ -267,13 +278,23 @@ export default function ShippingComparisonPage() {
               <p className="text-xs text-navy/50">Total</p>
               <p className="text-2xl font-extrabold text-navy">${cartTotal.toFixed(2)}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setModalStep('checkout')}
-              className="rounded-lg bg-blue px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
-            >
-              Checkout ({cart.length}) →
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAddToRegister}
+                className="rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-semibold text-navy/70 transition-colors hover:bg-cream"
+                title="Charge these packages with retail items on one receipt at the register"
+              >
+                + Add to register sale
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalStep('checkout')}
+                className="rounded-lg bg-blue px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
+              >
+                Checkout ({cart.length}) →
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -28,6 +28,11 @@ export async function POST(req: NextRequest) {
     const customerEmail = sanitizeEmail(body.customerEmail);
     const paymentIntentId =
       typeof body.paymentIntentId === 'string' ? body.paymentIntentId : undefined;
+    const transactionId =
+      typeof body.transactionId === 'string' ? body.transactionId : undefined;
+    // Combined register+shipping sales send one unified receipt from the checkout
+    // flow, so the per-sale email is suppressed to avoid a duplicate.
+    const suppressEmail = body.suppressEmail === true;
 
     if (items.length === 0) {
       return NextResponse.json({ error: 'Cart is empty' }, { status: 400 });
@@ -51,6 +56,7 @@ export async function POST(req: NextRequest) {
       paymentMethod,
       customerEmail,
       paymentIntentId: paymentMethod === 'card' ? paymentIntentId : undefined,
+      transactionId,
     };
 
     if (paymentMethod === 'cash' && body.cashTenderedUSD != null) {
@@ -62,7 +68,8 @@ export async function POST(req: NextRequest) {
     await appendSale(sale);
 
     // Email a receipt copy when we have a valid address — non-fatal on failure.
-    if (customerEmail && process.env.RESEND_API_KEY) {
+    // Skipped for combined sales, which email one unified receipt instead.
+    if (customerEmail && !suppressEmail && process.env.RESEND_API_KEY) {
       try {
         const { Resend } = await import('resend');
         const resend = new Resend(process.env.RESEND_API_KEY);

@@ -27,6 +27,14 @@ export async function appendLog(entry: ShipmentLogEntry): Promise<void> {
   await col().insertOne(entry);
 }
 
+/** All shipments in a combined transaction, oldest first (for the unified receipt). */
+export async function readShipmentsByTransaction(
+  transactionId: string
+): Promise<ShipmentLogEntry[]> {
+  await client.connect();
+  return col().find({ transactionId }).sort({ timestamp: 1 }).toArray();
+}
+
 export async function getShipmentById(id: string): Promise<ShipmentLogEntry | null> {
   await client.connect();
   return col().findOne({ id });

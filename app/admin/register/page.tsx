@@ -2,8 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import RegisterCheckout from '../components/RegisterCheckout';
+import CombinedCheckout from '../components/CombinedCheckout';
 import { SALES_TAX_RATE } from '../types/register';
 import type { RegisterProduct, RegisterLineItem } from '../types/register';
+import type { CartItem } from '../types/shipping';
+import { takeShippingCart } from '@/lib/comboHandoff';
+
+const CARRIER_LABELS: Record<string, string> = {
+  fedex: 'FedEx', ups: 'UPS', usps: 'USPS', dhl: 'DHL Express',
+};
 
 function money(n: number): string {
   return `$${n.toFixed(2)}`;
@@ -14,9 +21,17 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cart, setCart] = useState<RegisterLineItem[]>([]);
+  // Shipping packages handed over from the shipping page (combined sale).
+  const [shippingCart, setShippingCart] = useState<CartItem[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
   // Cashier can exempt a sale from sales tax (e.g. resale / tax-exempt customer).
   const [taxExempt, setTaxExempt] = useState(false);
+
+  // Pull in any shipping packages sent over from the shipping page on arrival.
+  useEffect(() => {
+    const pending = takeShippingCart();
+    if (pending.length > 0) setShippingCart(pending);
+  }, []);
 
   // Custom price entry
   const [customPrice, setCustomPrice] = useState('');
@@ -98,6 +113,19 @@ export default function RegisterPage() {
   );
   const total = Math.round((subtotal + tax) * 100) / 100;
   const itemCount = cart.reduce((s, i) => s + i.quantity, 0);
+
+  // Shipping packages are already at retail (shipping + insurance). Untaxed.
+  const shippingTotal = useMemo(
+    () => shippingCart.reduce((s, i) => s + i.rate.totalChargeUSD + (i.insurance?.premiumUSD ?? 0), 0),
+    [shippingCart]
+  );
+  const grandTotal = Math.round((total + shippingTotal) * 100) / 100;
+  const hasShipping = shippingCart.length > 0;
+  const canCheckout = cart.length > 0 || hasShipping;
+
+  function removeShippingItem(id: string) {
+    setShippingCart((prev) => prev.filter((i) => i.id !== id));
+  }
 
   return (
     <div className="py-6">
@@ -205,11 +233,12 @@ export default function RegisterPage() {
             </div>
 
             <div className="max-h-[45vh] overflow-y-auto px-5 py-3">
-              {cart.length === 0 ? (
+              {cart.length === 0 && !hasShipping && (
                 <p className="py-8 text-center text-sm text-navy/40">
                   Tap a product to add it to the cart.
                 </p>
-              ) : (
+              )}
+              {cart.length > 0 && (
                 <ul className="space-y-3">
                   {cart.map((item) => (
                     <li key={item.id} className="flex items-start gap-2">
@@ -257,6 +286,41 @@ export default function RegisterPage() {
                   ))}
                 </ul>
               )}
+
+              {/* Shipping packages pulled in from the shipping page */}
+              {hasShipping && (
+                <div className={cart.length > 0 ? 'mt-4 border-t border-navy/10 pt-3' : ''}>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-navy/40">
+                    Shipping
+                  </p>
+                  <ul className="space-y-3">
+                    {shippingCart.map((pkg) => (
+                      <li key={pkg.id} className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-navy">
+                            {(CARRIER_LABELS[pkg.carrier] ?? pkg.carrier)} — {pkg.rate.serviceName}
+                          </p>
+                          <p className="truncate text-xs text-navy/40">
+                            {pkg.shipment.destCity || pkg.shipment.destZip}
+                            {pkg.shipment.destState ? `, ${pkg.shipment.destState}` : ''} · {pkg.shipment.weightLbs} lbs
+                          </p>
+                        </div>
+                        <div className="w-16 shrink-0 text-right text-sm font-bold text-navy">
+                          {money(pkg.rate.totalChargeUSD + (pkg.insurance?.premiumUSD ?? 0))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeShippingItem(pkg.id)}
+                          className="mt-0.5 text-navy/30 transition-colors hover:text-red"
+                          aria-label="Remove package"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 border-t border-navy/10 px-5 py-4">
@@ -281,24 +345,46 @@ export default function RegisterPage() {
                 </div>
                 <span>{taxExempt ? 'Exempt' : money(tax)}</span>
               </div>
+              {hasShipping && (
+                <div className="flex justify-between text-sm text-navy/60">
+                  <span>Shipping</span>
+                  <span>{money(shippingTotal)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between border-t border-navy/10 pt-2">
                 <span className="text-sm font-semibold text-navy">Total</span>
-                <span className="text-2xl font-extrabold text-navy">{money(total)}</span>
+                <span className="text-2xl font-extrabold text-navy">{money(grandTotal)}</span>
               </div>
               <button
                 type="button"
-                disabled={cart.length === 0}
+                disabled={!canCheckout}
                 onClick={() => setShowCheckout(true)}
                 className="mt-2 w-full rounded-xl bg-blue px-4 py-3 text-sm font-bold text-white shadow-sm transition-all hover:bg-navy active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Checkout · {money(total)}
+                Checkout · {money(grandTotal)}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {showCheckout && (
+      {showCheckout && hasShipping && (
+        <CombinedCheckout
+          items={cart}
+          shipping={shippingCart}
+          taxRate={effectiveTaxRate}
+          goodsSubtotalUSD={subtotal}
+          goodsTaxUSD={tax}
+          onClose={() => setShowCheckout(false)}
+          onCompleted={() => {
+            setShowCheckout(false);
+            setCart([]);
+            setShippingCart([]);
+          }}
+        />
+      )}
+
+      {showCheckout && !hasShipping && (
         <RegisterCheckout
           items={cart}
           taxRate={effectiveTaxRate}

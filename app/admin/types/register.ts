@@ -50,4 +50,6 @@ export interface SaleRecord {
   /** Cash handling — recorded when the cashier enters an amount tendered */
   cashTenderedUSD?: number;
   changeDueUSD?: number;
+  /** Ties this sale to a combined register+shipping transaction (one charge, one receipt) */
+  transactionId?: string;
 }

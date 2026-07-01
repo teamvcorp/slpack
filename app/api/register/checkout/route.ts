@@ -23,7 +23,16 @@ export async function POST(req: NextRequest) {
     const taxRate = Number(body.taxRate) || 0;
     const customerEmail = sanitizeEmail(body.customerEmail);
 
-    if (items.length === 0) {
+    // Combined register + shipping sales add a pre-priced shipping amount (retail
+    // shipping + insurance + packing) on top of the goods total. It is validated
+    // here but priced on the client exactly as the standalone shipping flow does.
+    const rawShipping = Number(body.shippingUSD);
+    const shippingUSD =
+      Number.isFinite(rawShipping) && rawShipping > 0
+        ? Math.round(rawShipping * 100) / 100
+        : 0;
+
+    if (items.length === 0 && shippingUSD <= 0) {
       return NextResponse.json({ error: 'Cart is empty' }, { status: 400 });
     }
 
@@ -33,21 +42,26 @@ export async function POST(req: NextRequest) {
     });
 
     const priced = await priceCart(stripe, items, taxRate);
-    if (priced.totalUSD <= 0) {
+    const grandTotalUSD = Math.round((priced.totalUSD + shippingUSD) * 100) / 100;
+    if (grandTotalUSD <= 0) {
       return NextResponse.json({ error: 'Sale total must be greater than zero' }, { status: 400 });
     }
 
+    const combined = shippingUSD > 0;
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(priced.totalUSD * 100),
+      amount: Math.round(grandTotalUSD * 100),
       currency: 'usd',
       receipt_email: customerEmail,
-      description: `Register sale — ${items.length} item${items.length !== 1 ? 's' : ''}`,
+      description: combined
+        ? `Register + shipping — ${items.length} item${items.length !== 1 ? 's' : ''} + shipping`
+        : `Register sale — ${items.length} item${items.length !== 1 ? 's' : ''}`,
       metadata: {
-        source: 'register',
+        source: combined ? 'combined' : 'register',
         itemCount: String(items.length),
         subtotalUSD: priced.subtotalUSD.toFixed(2),
         taxUSD: priced.taxUSD.toFixed(2),
-        totalUSD: priced.totalUSD.toFixed(2),
+        shippingUSD: shippingUSD.toFixed(2),
+        totalUSD: grandTotalUSD.toFixed(2),
       },
     });
 
@@ -56,7 +70,8 @@ export async function POST(req: NextRequest) {
       paymentIntentId: paymentIntent.id,
       subtotalUSD: priced.subtotalUSD,
       taxUSD: priced.taxUSD,
-      totalUSD: priced.totalUSD,
+      shippingUSD,
+      totalUSD: grandTotalUSD,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

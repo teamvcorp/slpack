@@ -27,6 +27,14 @@ export async function getSaleById(id: string): Promise<SaleRecord | null> {
   return col().findOne({ id });
 }
 
+/** The goods sale for a combined transaction, if any (for the unified receipt). */
+export async function getSaleByTransaction(
+  transactionId: string
+): Promise<SaleRecord | null> {
+  await client.connect();
+  return col().findOne({ transactionId });
+}
+
 export async function appendSale(entry: SaleRecord): Promise<void> {
   await client.connect();
   await col().insertOne(entry);
