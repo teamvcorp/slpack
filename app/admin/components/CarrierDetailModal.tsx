@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import type { SelectedRate, InsuranceOption, ShippingRate, CarrierKey } from '../types/shipping';
+import { declaredValueFee, maxDeclaredValue, isFedexGround } from '@/lib/shippingPricing';
 
 interface Props {
   carrier: CarrierKey;
@@ -24,12 +25,6 @@ const CARRIER_META: Record<
   dhl:    { label: 'DHL Express',  color: '#D40511', logo: 'DHL'          },
 };
 
-/** Insurance premium = 10% of declared value, minimum $1.00 */
-function calcPremium(valueUSD: number): number {
-  if (valueUSD <= 0) return 0;
-  return Math.max(1, Math.round(valueUSD * 0.1 * 100) / 100);
-}
-
 export default function CarrierDetailModal({
   carrier,
   rate,
@@ -40,16 +35,18 @@ export default function CarrierDetailModal({
   onClose,
 }: Props) {
   const meta = CARRIER_META[carrier];
+  // Maximum declared value UPS/FedEx will cover for this service (FedEx Ground: $1,000).
+  const cap = maxDeclaredValue(carrier, rate.serviceName);
+  const groundCapped = carrier === 'fedex' && isFedexGround(rate.serviceName);
+
   const [insEnabled, setInsEnabled] = useState(declaredValueUSD > 0);
-  const [insValue, setInsValue] = useState(declaredValueUSD > 0 ? declaredValueUSD : 0);
+  const [insValue, setInsValue] = useState(
+    declaredValueUSD > 0 ? Math.min(cap, declaredValueUSD) : 0
+  );
 
-  const premium = insEnabled ? calcPremium(insValue) : 0;
+  // Carrier declared-value (liability) fee — free up to $100, then tiered.
+  const premium = insEnabled ? declaredValueFee(insValue) : 0;
   const total = rate.totalChargeUSD + premium;
-
-  // Keep insEnabled on when value is set
-  useEffect(() => {
-    if (insValue > 0) setInsEnabled(true);
-  }, [insValue]);
 
   function handleConfirm() {
     const insurance: InsuranceOption = {
@@ -126,8 +123,8 @@ export default function CarrierDetailModal({
           <div className="rounded-xl border border-navy/10 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-navy">Shipping Insurance</p>
-                <p className="text-xs text-navy/50">10% of declared value ($1 min)</p>
+                <p className="text-sm font-semibold text-navy">{meta.label} Declared Value Coverage</p>
+                <p className="text-xs text-navy/50">Included up to $100, then tiered by declared value</p>
               </div>
               <button
                 type="button"
@@ -157,18 +154,36 @@ export default function CarrierDetailModal({
                 <input
                   type="number"
                   min={0}
+                  max={cap}
                   step={0.01}
                   className={inputCls}
                   value={insValue || ''}
-                  onChange={(e) => setInsValue(parseFloat(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const v = Math.min(cap, Math.max(0, parseFloat(e.target.value) || 0));
+                    setInsValue(v);
+                    if (v > 0) setInsEnabled(true);
+                  }}
                   placeholder="0.00"
                 />
-                {insValue > 0 && (
+                {insValue > 0 && insValue <= 100 && (
                   <p className="mt-1.5 text-xs text-navy/50">
-                    Insurance premium:{' '}
+                    Coverage: <span className="font-semibold text-navy">Included (up to $100)</span>
+                  </p>
+                )}
+                {insValue > 100 && (
+                  <p className="mt-1.5 text-xs text-navy/50">
+                    Coverage fee:{' '}
                     <span className="font-semibold text-navy">${premium.toFixed(2)}</span>
                   </p>
                 )}
+                {groundCapped && (
+                  <p className="mt-1 text-[11px] text-navy/40">
+                    FedEx Ground coverage is capped at $1,000.
+                  </p>
+                )}
+                <p className="mt-1 text-[11px] text-navy/40">
+                  Carrier liability coverage — not third-party insurance.
+                </p>
               </div>
             )}
           </div>

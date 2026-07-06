@@ -52,12 +52,17 @@ export async function POST(req: NextRequest) {
       Height: String(shipment.heightIn),
     };
 
-    const packageInsurance =
+    // Declared value goes under PackageServiceOptions.DeclaredValue in the UPS
+    // Ship API (NOT a bare InsuredValue on the package — UPS ignores that).
+    // Type defaults to 01 (EVS). This is what makes UPS actually cover the value.
+    const packageServiceOptions =
       insurance?.enabled && insurance?.valueUSD > 0
         ? {
-            InsuredValue: {
-              CurrencyCode: 'USD',
-              MonetaryValue: String(insurance.valueUSD.toFixed(2)),
+            PackageServiceOptions: {
+              DeclaredValue: {
+                CurrencyCode: 'USD',
+                MonetaryValue: String(insurance.valueUSD.toFixed(2)),
+              },
             },
           }
         : {};
@@ -116,7 +121,7 @@ export async function POST(req: NextRequest) {
               Packaging: { Code: '02' },
               Dimensions: packageDims,
               PackageWeight: packageWeight,
-              ...packageInsurance,
+              ...packageServiceOptions,
             },
           ],
         },
