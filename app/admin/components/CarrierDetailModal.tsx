@@ -43,6 +43,7 @@ export default function CarrierDetailModal({
   const [insValue, setInsValue] = useState(
     declaredValueUSD > 0 ? Math.min(cap, declaredValueUSD) : 0
   );
+  const [insDescription, setInsDescription] = useState('');
 
   // Carrier declared-value (liability) fee — free up to $100, then tiered.
   const premium = insEnabled ? declaredValueFee(insValue) : 0;
@@ -53,6 +54,7 @@ export default function CarrierDetailModal({
       enabled: insEnabled,
       valueUSD: insEnabled ? insValue : 0,
       premiumUSD: premium,
+      description: insEnabled ? insDescription.trim() || undefined : undefined,
     };
     onConfirm({ insurance });
   }
@@ -181,7 +183,20 @@ export default function CarrierDetailModal({
                     FedEx Ground coverage is capped at $1,000.
                   </p>
                 )}
-                <p className="mt-1 text-[11px] text-navy/40">
+
+                <label className="mb-1 mt-3 block text-[11px] font-semibold uppercase tracking-wide text-navy/50">
+                  What&apos;s being insured (optional)
+                </label>
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={insDescription}
+                  onChange={(e) => setInsDescription(e.target.value)}
+                  maxLength={120}
+                  placeholder="e.g. Ceramic vase"
+                />
+
+                <p className="mt-2 text-[11px] text-navy/40">
                   Carrier liability coverage — not third-party insurance.
                 </p>
               </div>

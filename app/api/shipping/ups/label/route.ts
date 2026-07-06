@@ -88,6 +88,9 @@ export async function POST(req: NextRequest) {
           },
           ShipTo: {
             Name: shipment.customerName || 'Customer',
+            ...(shipment.destAttention?.trim()
+              ? { AttentionName: String(shipment.destAttention).trim().slice(0, 35) }
+              : {}),
             Phone: { Number: shipment.customerPhone || '5555555555' },
             Address: {
               AddressLine: [shipment.destStreet || '', ...(shipment.destStreet2?.trim() ? [shipment.destStreet2.trim()] : [])],

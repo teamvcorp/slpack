@@ -57,6 +57,7 @@ const DEFAULTS: ShipmentInput = {
   destCity: '',
   destState: '',
   destCountry: 'US',
+  destAttention: '',
   residential: true,
   weightLbs: 2,
   lengthIn: 12,
@@ -441,6 +442,18 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
             placeholder="Apt 4B"
           />
         </div>
+      </div>
+
+      {/* Attention line — printed on the label address (e.g. ATTN: dept/person) */}
+      <div className="mb-3">
+        <label className={lbl}>Attention (optional)</label>
+        <input
+          className={input}
+          value={form.destAttention ?? ''}
+          onChange={(e) => set('destAttention', e.target.value)}
+          maxLength={35}
+          placeholder="ATTN: Receiving Dept."
+        />
       </div>
 
       {/* ── Row 2: ZIP / City / State / Country / Validate ── */}

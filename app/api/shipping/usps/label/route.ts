@@ -12,6 +12,7 @@ interface LegacyShipment {
   senderEmail?: string;
   destStreet?: string;
   destStreet2?: string;
+  destAttention?: string;
   destCity?: string;
   destState?: string;
   destZip?: string;
@@ -259,6 +260,9 @@ export async function POST(req: NextRequest) {
       toAddress: {
         firstName,
         lastName,
+        ...(legacyShipment?.destAttention?.trim()
+          ? { firm: `ATTN: ${String(legacyShipment.destAttention).trim()}` }
+          : {}),
         streetAddress: legacyShipment?.destStreet || '',
         ...(legacyShipment?.destStreet2?.trim() ? { secondaryAddress: legacyShipment.destStreet2.trim() } : {}),
         city: legacyShipment?.destCity || '',

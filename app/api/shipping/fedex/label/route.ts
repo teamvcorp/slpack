@@ -78,7 +78,11 @@ export async function POST(req: NextRequest) {
               phoneNumber: shipment.customerPhone || '5555555555',
             },
             address: {
-              streetLines: [shipment.destStreet || '', ...(shipment.destStreet2?.trim() ? [shipment.destStreet2.trim()] : [])],
+              streetLines: [
+                shipment.destStreet || '',
+                ...(shipment.destStreet2?.trim() ? [shipment.destStreet2.trim()] : []),
+                ...(shipment.destAttention?.trim() ? [`ATTN: ${String(shipment.destAttention).trim()}`] : []),
+              ],
               city: shipment.destCity || '',
               stateOrProvinceCode: shipment.destState || '',
               postalCode: normalizePostal(shipment.destZip, shipment.destCountry),

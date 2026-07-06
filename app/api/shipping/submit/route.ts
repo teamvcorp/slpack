@@ -81,6 +81,8 @@ export async function POST(req: NextRequest) {
       customerName: shipment.customerName ?? '',
       customerPhone: shipment.customerPhone ?? '',
       customerEmail: shipment.customerEmail ?? '',
+      destAttention: shipment.destAttention?.trim() || undefined,
+      insuranceDescription: insurance?.description?.trim() || undefined,
       paymentMethod: (paymentMethod === 'cash' ? 'cash' : 'card') as 'card' | 'cash',
       transactionId: typeof transactionId === 'string' ? transactionId : undefined,
     };

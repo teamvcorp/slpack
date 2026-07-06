@@ -260,6 +260,12 @@ export function buildShipmentReceiptHtml(entry: ShipmentLogEntry): string {
     (entry.packingFeeUSD ?? 0) > 0
       ? `<tr><td style="padding:4px 0;color:#666;">Packing fee</td><td style="padding:4px 0;text-align:right;">${money(entry.packingFeeUSD ?? 0)}</td></tr>`
       : '';
+  const insDescRow = entry.insuranceDescription
+    ? `<tr><td style="padding:4px 0;color:#666;">Insured</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${esc(entry.insuranceDescription)}</td></tr>`
+    : '';
+  const attnRow = entry.destAttention
+    ? `<tr><td style="padding:4px 0;color:#666;">Attn</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${esc(entry.destAttention)}</td></tr>`
+    : '';
   const toLine = entry.destCity ? `${esc(entry.destCity)}, ${esc(entry.destState)} ${esc(entry.destZip)}` : esc(entry.destZip);
 
   return `<!DOCTYPE html>
@@ -287,9 +293,11 @@ export function buildShipmentReceiptHtml(entry: ShipmentLogEntry): string {
         <tr><td style="padding:4px 0;color:#666;">Service</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${esc(entry.serviceName)}</td></tr>
         <tr><td style="padding:4px 0;color:#666;">From</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${esc(entry.originZip)}</td></tr>
         <tr><td style="padding:4px 0;color:#666;">To</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${toLine}</td></tr>
+        ${attnRow}
         <tr><td style="padding:4px 0;color:#666;">Weight</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${entry.weightLbs} lbs</td></tr>
         <tr style="border-top:1px solid #eee;"><td style="padding:8px 0 4px;color:#666;">Shipping</td><td style="padding:8px 0 4px;text-align:right;">${money(entry.shippingUSD)}</td></tr>
         ${insRow}
+        ${insDescRow}
         ${packRow}
         <tr style="border-top:2px solid #1a2744;"><td style="padding:8px 0 0;font-weight:bold;color:#1a2744;">Total Charged</td><td style="padding:8px 0 0;text-align:right;font-weight:bold;font-size:18px;color:#1a2744;">${money(entry.totalUSD)}</td></tr>
       </table>

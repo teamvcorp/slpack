@@ -8,6 +8,8 @@ export interface ShipmentInput {
   destCity: string;
   destState: string;
   destCountry: string;
+  /** Optional "ATTN:" line for the recipient — printed on the label address. */
+  destAttention?: string;
   /** True = residential delivery (carrier surcharge applies); false = commercial. */
   residential: boolean;
   weightLbs: number;
@@ -75,8 +77,10 @@ export interface InsuranceOption {
   enabled: boolean;
   /** Declared value in USD — mirrors shipment.declaredValueUSD */
   valueUSD: number;
-  /** Calculated premium (10% of declared value, $1 minimum) */
+  /** Carrier declared-value (liability) fee — see lib/shippingPricing declaredValueFee */
   premiumUSD: number;
+  /** Optional description of what's being insured (for records / claims) */
+  description?: string;
 }
 
 /** Stored in /api/shipping/log — one entry per completed shipment */
@@ -99,6 +103,10 @@ export interface ShipmentLogEntry {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  /** "ATTN:" line for the recipient, if provided */
+  destAttention?: string;
+  /** Description of the insured contents, if declared-value coverage was added */
+  insuranceDescription?: string;
   paymentMethod?: 'card' | 'cash';
   /** Ties this shipment to a combined register+shipping transaction (one charge, one receipt) */
   transactionId?: string;
