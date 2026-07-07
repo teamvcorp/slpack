@@ -8,14 +8,23 @@ interface Props {
   cart: CartItem[];
   onClose: () => void;
   onSuccess: (results: CartResult[], paymentMethod: 'card' | 'cash') => void;
+  /** Which submit endpoint to POST each package to. Defaults to the domestic
+   *  route; the international flow passes '/api/shipping/intl/submit' so it can
+   *  reuse this checkout without any change to domestic behavior. */
+  submitPath?: string;
 }
 
-async function submitItem(item: CartItem, paymentMethod: 'card' | 'cash', packingFeeUSD: number): Promise<CartResult> {
+async function submitItem(
+  item: CartItem,
+  paymentMethod: 'card' | 'cash',
+  packingFeeUSD: number,
+  submitPath: string
+): Promise<CartResult> {
   const shippingUSD = item.rate.totalChargeUSD;
   const insuranceUSD = item.insurance?.premiumUSD ?? 0;
   const totalUSD = shippingUSD + insuranceUSD + packingFeeUSD;
 
-  const res = await fetch('/api/shipping/submit', {
+  const res = await fetch(submitPath, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -39,6 +48,8 @@ async function submitItem(item: CartItem, paymentMethod: 'card' | 'cash', packin
     labelBase64: data.labelBase64 ?? null,
     labelMimeType: data.labelMimeType ?? null,
     labelError: data.labelError ?? null,
+    // Present only for international submits; undefined leaves domestic unchanged.
+    ...(Array.isArray(data.documents) ? { documents: data.documents } : {}),
   };
 }
 
@@ -66,7 +77,7 @@ interface SavedCard {
   expYear: number | null;
 }
 
-export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
+export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = '/api/shipping/submit' }: Props) {
   const [step, setStep] = useState<Step>('review');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -154,7 +165,7 @@ export default function StripeCheckout({ cart, onClose, onSuccess }: Props) {
     for (let i = 0; i < cart.length; i++) {
       setProcessingMsg(`Generating label ${i + 1} of ${cart.length}…`);
       // Apply packing fee to first item only so it isn't double-counted.
-      results.push(await submitItem(cart[i], paymentMethod, i === 0 ? packingFeeUSD : 0));
+      results.push(await submitItem(cart[i], paymentMethod, i === 0 ? packingFeeUSD : 0, submitPath));
     }
     setStep('success');
     setTimeout(() => onSuccess(results, paymentMethod), 1500);

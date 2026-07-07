@@ -8,6 +8,7 @@ const NAV = [
   { label: 'Register', href: '/admin/register' },
   { label: 'Drop-off', href: '/admin/dropoff' },
   { label: 'Shipping Compare', href: '/admin/shipping' },
+  { label: 'International', href: '/admin/shipping-intl' },
   { label: 'Reports', href: '/admin/log' },
   { label: 'Pickup', href: '/admin/pickup' },
 ];

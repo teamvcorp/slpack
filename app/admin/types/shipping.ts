@@ -64,6 +64,15 @@ export interface CartItem {
   insurance: InsuranceOption;
 }
 
+/** A printable document returned by a carrier (label, commercial invoice, …).
+ *  Used by the international flow; optional on domestic results (never set there). */
+export interface ShipmentDocument {
+  type: 'LABEL' | 'COMMERCIAL_INVOICE' | 'OTHER';
+  /** Base64-encoded document payload. */
+  base64: string;
+  mimeType: string;
+}
+
 /** Result returned after submitting a CartItem to a carrier */
 export interface CartResult {
   item: CartItem;
@@ -71,6 +80,9 @@ export interface CartResult {
   labelBase64: string | null;
   labelMimeType: string | null;
   labelError: string | null;
+  /** International only: all documents to print (label + commercial invoice).
+   *  Undefined for domestic shipments, so existing domestic code is unaffected. */
+  documents?: ShipmentDocument[];
 }
 
 export interface InsuranceOption {
