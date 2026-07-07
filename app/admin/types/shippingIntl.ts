@@ -47,6 +47,10 @@ export interface CustomsInfo {
   currency: 'USD';
   /** Optional overall contents summary (falls back to concatenated commodity descriptions). */
   contentsDescription?: string;
+  /** Duties to collect from the customer when the SHIPPER prepays (DDP).
+   *  FedEx-estimated (EDT) or manually entered; added to the charge total.
+   *  Undefined/0 when the recipient pays duties (DAP/DDU). */
+  dutiesCollectedUSD?: number;
 }
 
 /** Domestic shipment input plus the customs block required for cross-border shipping. */
@@ -63,6 +67,8 @@ export interface IntlCartItem {
   rate: ShippingRate;
   shipment: IntlShipmentInput;
   insurance: InsuranceOption;
+  /** Prepaid duties (DDP) collected from the customer, added to the total. */
+  dutiesUSD?: number;
 }
 
 /** Result returned after submitting an international package to a carrier.

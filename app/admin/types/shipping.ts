@@ -62,6 +62,9 @@ export interface CartItem {
   rate: ShippingRate;
   shipment: ShipmentInput;
   insurance: InsuranceOption;
+  /** International only: prepaid duties (DDP) collected from the customer,
+   *  added to the charge total. Undefined for domestic — totals unaffected. */
+  dutiesUSD?: number;
 }
 
 /** A printable document returned by a carrier (label, commercial invoice, …).
@@ -109,6 +112,8 @@ export interface ShipmentLogEntry {
   shippingUSD: number;
   insuranceUSD: number;
   packingFeeUSD?: number;
+  /** International only: prepaid duties (DDP) collected from the customer. */
+  dutiesUSD?: number;
   totalUSD: number;
   trackingNumber: string | null;
   labelBase64: string | null;

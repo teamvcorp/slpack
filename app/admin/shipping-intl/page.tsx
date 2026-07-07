@@ -104,6 +104,8 @@ export default function IntlShippingPage() {
       rate: previewCarrier.rate,
       shipment,
       insurance,
+      // Prepaid duties (DDP) collected from the customer, added to the total.
+      dutiesUSD: pendingCustoms.dutiesCollectedUSD ?? 0,
     };
     setCart((prev) => [...prev, newItem]);
     setPreviewCarrier(null);
@@ -137,7 +139,10 @@ export default function IntlShippingPage() {
     setFormKey((k) => k + 1);
   }
 
-  const cartTotal = cart.reduce((s, i) => s + i.rate.totalChargeUSD + (i.insurance?.premiumUSD ?? 0), 0);
+  const cartTotal = cart.reduce(
+    (s, i) => s + i.rate.totalChargeUSD + (i.insurance?.premiumUSD ?? 0) + (i.dutiesUSD ?? 0),
+    0
+  );
 
   return (
     <div>
@@ -174,7 +179,7 @@ export default function IntlShippingPage() {
 
           <div className="space-y-2">
             {cart.map((item, idx) => {
-              const itemTotal = item.rate.totalChargeUSD + (item.insurance?.premiumUSD ?? 0);
+              const itemTotal = item.rate.totalChargeUSD + (item.insurance?.premiumUSD ?? 0) + (item.dutiesUSD ?? 0);
               const color = CARRIER_COLORS[item.carrier];
               return (
                 <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg border border-navy/10 bg-cream px-4 py-3">
@@ -217,8 +222,11 @@ export default function IntlShippingPage() {
       {/* Customs modal */}
       {modalStep === 'customs' && previewCarrier && currentShipment && (
         <CustomsFormModal
+          carrier={previewCarrier.carrier}
           carrierColor={CARRIER_COLORS[previewCarrier.carrier]}
           carrierLabel={CARRIER_LABELS[previewCarrier.carrier]}
+          shipment={currentShipment}
+          serviceCode={previewCarrier.rate.serviceCode}
           defaultValueUSD={currentShipment.declaredValueUSD}
           onConfirm={handleCustomsConfirm}
           onClose={() => { setModalStep(null); setPreviewCarrier(null); }}

@@ -22,7 +22,8 @@ async function submitItem(
 ): Promise<CartResult> {
   const shippingUSD = item.rate.totalChargeUSD;
   const insuranceUSD = item.insurance?.premiumUSD ?? 0;
-  const totalUSD = shippingUSD + insuranceUSD + packingFeeUSD;
+  const dutiesUSD = item.dutiesUSD ?? 0; // international DDP only; 0 for domestic
+  const totalUSD = shippingUSD + insuranceUSD + packingFeeUSD + dutiesUSD;
 
   const res = await fetch(submitPath, {
     method: 'POST',
@@ -35,6 +36,7 @@ async function submitItem(
       shippingUSD,
       insuranceUSD,
       packingFeeUSD,
+      dutiesUSD,
       totalUSD,
       insurance: item.insurance,
       paymentMethod,
@@ -97,7 +99,9 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
 
   const totalShipping = cart.reduce((s, i) => s + i.rate.totalChargeUSD, 0);
   const totalInsurance = cart.reduce((s, i) => s + (i.insurance?.premiumUSD ?? 0), 0);
-  const grandTotal = totalShipping + totalInsurance + packingFeeUSD;
+  // International DDP prepaid duties; 0 for domestic carts.
+  const totalDuties = cart.reduce((s, i) => s + (i.dutiesUSD ?? 0), 0);
+  const grandTotal = totalShipping + totalInsurance + packingFeeUSD + totalDuties;
 
   // Sender (paying customer) drives Stripe billing details. Fall back to
   // recipient only when no sender info was captured — keeps single-field
@@ -437,6 +441,12 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
               <div className="flex items-center justify-between border-t border-navy/10 pt-2 text-xs text-navy/50">
                 <span>Shipping + insurance</span>
                 <span>${(totalShipping + totalInsurance).toFixed(2)}</span>
+              </div>
+            )}
+            {totalDuties > 0 && (
+              <div className="flex items-center justify-between text-xs text-navy/50">
+                <span>Duties (prepaid)</span>
+                <span>${totalDuties.toFixed(2)}</span>
               </div>
             )}
             <div className="flex items-center justify-between">
