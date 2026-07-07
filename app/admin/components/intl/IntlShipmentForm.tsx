@@ -160,8 +160,9 @@ export default function IntlShipmentForm({ onSubmit, loading }: Props) {
           <input className={input} value={form.destStreet} onChange={(e) => set('destStreet', e.target.value)} maxLength={100} placeholder="Av. Insurgentes Sur 1234" required />
         </div>
         <div>
-          <label className={lbl}>Apt / Suite / Interior (optional)</label>
-          <input className={input} value={form.destStreet2 ?? ''} onChange={(e) => set('destStreet2', e.target.value)} maxLength={100} placeholder="Int. 5B" />
+          <label className={lbl}>Apt / Suite / Neighborhood (Colonia / Bairro)</label>
+          <input className={input} value={form.destStreet2 ?? ''} onChange={(e) => set('destStreet2', e.target.value)} maxLength={100} placeholder="Col. Del Valle · Int. 5B" />
+          <p className="mt-1 text-[10px] text-navy/40">Mexico/South America: enter the colonia/neighborhood here — required for customs clearance.</p>
         </div>
       </div>
 
