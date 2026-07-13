@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { stashShippingCart } from '@/lib/comboHandoff';
 import ShipmentForm from '../components/ShipmentForm';
@@ -58,6 +58,11 @@ export default function ShippingComparisonPage() {
   const [modalStep, setModalStep] = useState<'carrier-detail' | 'checkout' | 'label' | 'address-guard' | null>(null);
   // Destination address validated by a carrier or approved by staff (checkout gate).
   const [addressValidated, setAddressValidated] = useState(false);
+  // True once rates have been fetched at least once (drives the "select a rate" hint).
+  const [hasCompared, setHasCompared] = useState(false);
+  // Signature of rate-affecting fields at Compare time — if these change afterward,
+  // the shown rates are stale and we force a re-compare.
+  const comparedSigRef = useRef<string>('');
   const [previewCarrier, setPreviewCarrier] = useState<{ carrier: CarrierKey; rate: ShippingRate } | null>(null);
   const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
@@ -112,8 +117,30 @@ export default function ShippingComparisonPage() {
     }
   }
 
+  // Only these fields change the rate quote; edits to them after Compare make
+  // the shown rates stale. Contact fields (name/phone/email/attention) don't.
+  function rateSignature(s: ShipmentInput): string {
+    return JSON.stringify([
+      s.originZip, s.destZip, s.destCity, s.destState, s.destCountry,
+      s.residential, s.weightLbs, s.lengthIn, s.widthIn, s.heightIn,
+    ]);
+  }
+
+  // Keep the shipment in sync with the live form so fields edited after Compare
+  // (e.g. recipient name/phone) still reach the cart/label. If a rate-affecting
+  // field changed, drop the stale rates so staff re-compare before checkout.
+  function handleFormChange(shipment: ShipmentInput) {
+    setCurrentShipment(shipment);
+    if (hasCompared && rateSignature(shipment) !== comparedSigRef.current) {
+      setHasCompared(false);
+      setResults(INITIAL_RESULTS);
+    }
+  }
+
   async function handleCompare(shipment: ShipmentInput) {
     setCurrentShipment(shipment);
+    comparedSigRef.current = rateSignature(shipment);
+    setHasCompared(true);
     setModalStep(null);
     setAnyLoading(true);
 
@@ -157,6 +184,7 @@ export default function ShippingComparisonPage() {
     setResults(INITIAL_RESULTS);
     setCurrentShipment(null);
     setAddressValidated(false);
+    setHasCompared(false);
     setFormKey((k) => k + 1);
   }
 
@@ -180,6 +208,7 @@ export default function ShippingComparisonPage() {
     setModalStep(null);
     setCurrentShipment(null);
     setAddressValidated(false);
+    setHasCompared(false);
     setResults(INITIAL_RESULTS);
     setFormKey((k) => k + 1);
   }
@@ -217,7 +246,7 @@ export default function ShippingComparisonPage() {
       </div>
 
       {/* Shipment form */}
-      <ShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} onAddressStatus={setAddressValidated} />
+      <ShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} onAddressStatus={setAddressValidated} onChange={handleFormChange} />
 
       {/* Carrier panels — 1 col mobile, 2 col tablet+ */}
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -313,7 +342,7 @@ export default function ShippingComparisonPage() {
       )}
 
       {/* No-rates prompt when form is ready but no items in cart yet */}
-      {cart.length === 0 && currentShipment && !anyLoading && (
+      {cart.length === 0 && hasCompared && !anyLoading && (
         <p className="mt-4 text-center text-sm text-navy/40">
           Select a rate above to add a package to the cart.
         </p>

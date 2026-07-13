@@ -26,6 +26,10 @@ interface Props {
    *  (by a carrier) or is manually approved by staff — drives the checkout
    *  guardrail. Resets to false whenever an address field is edited. */
   onAddressStatus?: (validated: boolean) => void;
+  /** Fires on every form change so the page's shipment stays in sync with the
+   *  live inputs — otherwise fields edited AFTER "Compare" (e.g. recipient
+   *  name/phone) never reach the cart/label. */
+  onChange?: (data: ShipmentInput) => void;
 }
 
 interface AddressResult {
@@ -89,7 +93,7 @@ const COUNTRIES = [
   { code: 'IN', label: 'India' },
 ];
 
-export default function ShipmentForm({ onSubmit, loading, onAddressStatus }: Props) {
+export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onChange }: Props) {
   const [form, setForm] = useState<ShipmentInput>(DEFAULTS);
   const [validating, setValidating] = useState(false);
   const [zipLookup, setZipLookup] = useState(false);
@@ -126,6 +130,13 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus }: Pro
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Keep the parent's shipment snapshot in sync with the live form, so fields
+  // edited after "Compare" (recipient name/phone, etc.) still reach the label.
+  useEffect(() => {
+    onChange?.(form);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
 
   // ── Sender search + apply ─────────────────────────────────────────────────
   async function searchSenders(q: string) {
@@ -838,6 +849,7 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus }: Pro
             maxLength={100}
             placeholder="Jane Smith"
             autoComplete="off"
+            required
           />
           {recipOpen && suggestionList(
             recipSug,
@@ -856,6 +868,7 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus }: Pro
             onChange={(e) => set('customerPhone', e.target.value)}
             maxLength={20}
             placeholder="(712) 555-0100"
+            required
           />
         </div>
         <div>

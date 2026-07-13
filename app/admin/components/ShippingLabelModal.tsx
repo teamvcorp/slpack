@@ -52,16 +52,24 @@ export default function ShippingLabelModal({ results, onClose }: Props) {
       return;
     }
 
-    // If we have an image label (PNG/GIF), print it directly
+    // Image label (PNG/GIF): open the raw image in the browser's native viewer
+    // so it prints at true size. Building an <img> page (width:4in) caused the
+    // print to render at ~50%; this matches the report reprint path
+    // (/api/shipping/label/[id]), which prints correctly.
     if (labelBase64 && labelMimeType && labelMimeType !== 'application/pdf') {
-      const win = window.open('', '_blank', 'width=600,height=800');
-      if (!win) return;
-      win.document.write(`<!DOCTYPE html><html><head><title>Shipping Label — ${trackingNumber}</title>
-        <style>* { margin:0; padding:0; } body { background:#fff; } img { width:4in; display:block; margin:0 auto; } @media print { body { margin:0; } }</style>
-        </head><body><img src="data:${labelMimeType};base64,${labelBase64}" /></body></html>`);
-      win.document.close();
-      win.focus();
-      win.onload = () => { win.print(); win.onafterprint = () => win.close(); };
+      const byteChars = atob(labelBase64);
+      const byteArray = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([byteArray], { type: labelMimeType });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank');
+      if (win) {
+        win.onload = () => {
+          win.focus();
+          win.print();
+          setTimeout(() => URL.revokeObjectURL(url), 10000);
+        };
+      }
       return;
     }
 
