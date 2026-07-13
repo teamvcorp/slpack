@@ -67,6 +67,13 @@ export function buildSaleReceiptHtml(sale: SaleRecord): string {
       ? `<tr><td style="padding:2px 0;color:#555;">${taxLabel}</td><td style="padding:2px 0;text-align:right;">${money(sale.taxUSD)}</td></tr>`
       : '';
 
+  const cardFeeUSD = sale.cardFeeUSD ?? 0;
+  const cardFeeRow =
+    cardFeeUSD > 0
+      ? `<tr><td style="padding:2px 0;color:#555;">Card processing fee</td><td style="padding:2px 0;text-align:right;">${money(cardFeeUSD)}</td></tr>`
+      : '';
+  const grandTotalUSD = Math.round((sale.totalUSD + cardFeeUSD) * 100) / 100;
+
   const paymentLabel = sale.paymentMethod === 'cash' ? 'Cash' : 'Card';
   const cashRows =
     sale.paymentMethod === 'cash' && sale.cashTenderedUSD != null
@@ -99,9 +106,10 @@ export function buildSaleReceiptHtml(sale: SaleRecord): string {
     <table style="width:100%;border-collapse:collapse;font-size:13px;border-top:1px dashed #aaa;margin-top:10px;padding-top:6px;">
       <tr><td style="padding:6px 0 2px;color:#555;">Subtotal</td><td style="padding:6px 0 2px;text-align:right;">${money(sale.subtotalUSD)}</td></tr>
       ${taxRow}
+      ${cardFeeRow}
       <tr style="border-top:1px solid #111;">
         <td style="padding:6px 0 0;font-weight:bold;font-size:15px;">Total</td>
-        <td style="padding:6px 0 0;text-align:right;font-weight:bold;font-size:15px;">${money(sale.totalUSD)}</td>
+        <td style="padding:6px 0 0;text-align:right;font-weight:bold;font-size:15px;">${money(grandTotalUSD)}</td>
       </tr>
       <tr><td style="padding:6px 0 2px;color:#555;">Paid</td><td style="padding:6px 0 2px;text-align:right;">${paymentLabel}</td></tr>
       ${cashRows}
@@ -130,6 +138,8 @@ export interface CombinedReceiptData {
   sale: SaleRecord | null;
   /** Shipping packages on this transaction. */
   packages: CombinedPackageLine[];
+  /** Credit-card processing surcharge on this transaction (card only). */
+  cardFeeUSD?: number;
   cashTenderedUSD?: number;
   changeDueUSD?: number;
 }
@@ -152,7 +162,12 @@ export function buildCombinedReceiptHtml(data: CombinedReceiptData): string {
 
   const goodsTotal = sale?.totalUSD ?? 0;
   const shippingTotal = packages.reduce((s, p) => s + p.amountUSD, 0);
-  const grandTotal = Math.round((goodsTotal + shippingTotal) * 100) / 100;
+  const cardFeeUSD = data.cardFeeUSD ?? 0;
+  const grandTotal = Math.round((goodsTotal + shippingTotal + cardFeeUSD) * 100) / 100;
+  const cardFeeRow =
+    cardFeeUSD > 0
+      ? `<tr><td style="padding:2px 0;color:#555;">Card processing fee</td><td style="padding:2px 0;text-align:right;">${money(cardFeeUSD)}</td></tr>`
+      : '';
 
   // ── Goods section (only when there are retail items) ───────────────────────
   let goodsBlock = '';
@@ -229,6 +244,7 @@ export function buildCombinedReceiptHtml(data: CombinedReceiptData): string {
     ${shippingBlock}
 
     <table style="width:100%;border-collapse:collapse;font-size:13px;border-top:1px dashed #aaa;margin-top:10px;padding-top:6px;">
+      ${cardFeeRow}
       <tr style="border-top:1px solid #111;">
         <td style="padding:6px 0 0;font-weight:bold;font-size:15px;">Total</td>
         <td style="padding:6px 0 0;text-align:right;font-weight:bold;font-size:15px;">${money(grandTotal)}</td>
@@ -259,6 +275,14 @@ export function buildShipmentReceiptHtml(entry: ShipmentLogEntry): string {
   const packRow =
     (entry.packingFeeUSD ?? 0) > 0
       ? `<tr><td style="padding:4px 0;color:#666;">Packing fee</td><td style="padding:4px 0;text-align:right;">${money(entry.packingFeeUSD ?? 0)}</td></tr>`
+      : '';
+  const dutiesRow =
+    (entry.dutiesUSD ?? 0) > 0
+      ? `<tr><td style="padding:4px 0;color:#666;">Prepaid duties</td><td style="padding:4px 0;text-align:right;">${money(entry.dutiesUSD ?? 0)}</td></tr>`
+      : '';
+  const cardFeeRow =
+    (entry.cardFeeUSD ?? 0) > 0
+      ? `<tr><td style="padding:4px 0;color:#666;">Card processing fee</td><td style="padding:4px 0;text-align:right;">${money(entry.cardFeeUSD ?? 0)}</td></tr>`
       : '';
   const insDescRow = entry.insuranceDescription
     ? `<tr><td style="padding:4px 0;color:#666;">Insured</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${esc(entry.insuranceDescription)}</td></tr>`
@@ -299,6 +323,8 @@ export function buildShipmentReceiptHtml(entry: ShipmentLogEntry): string {
         ${insRow}
         ${insDescRow}
         ${packRow}
+        ${dutiesRow}
+        ${cardFeeRow}
         <tr style="border-top:2px solid #1a2744;"><td style="padding:8px 0 0;font-weight:bold;color:#1a2744;">Total Charged</td><td style="padding:8px 0 0;text-align:right;font-weight:bold;font-size:18px;color:#1a2744;">${money(entry.totalUSD)}</td></tr>
       </table>
 

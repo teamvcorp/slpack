@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeEmail } from '@/lib/email';
 import { priceCart } from '@/lib/registerPricing';
+import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
 import type { RegisterLineItem } from '@/app/admin/types/register';
 
 /**
@@ -42,16 +43,30 @@ export async function POST(req: NextRequest) {
     });
 
     const priced = await priceCart(stripe, items, taxRate);
-    const grandTotalUSD = Math.round((priced.totalUSD + shippingUSD) * 100) / 100;
-    if (grandTotalUSD <= 0) {
+    const baseTotalUSD = Math.round((priced.totalUSD + shippingUSD) * 100) / 100;
+    if (baseTotalUSD <= 0) {
       return NextResponse.json({ error: 'Sale total must be greater than zero' }, { status: 400 });
     }
+
+    // Credit-only surcharge: read funding server-side and gross up the total.
+    const paymentMethodId = typeof body.paymentMethodId === 'string' ? body.paymentMethodId : undefined;
+    let funding: ReturnType<typeof normalizeFunding> = 'unknown';
+    if (paymentMethodId) {
+      try {
+        const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+        funding = normalizeFunding(pm.card?.funding);
+      } catch {
+        funding = 'unknown';
+      }
+    }
+    const { feeUSD: cardFeeUSD, totalUSD: grandTotalUSD } = computeCardFee(baseTotalUSD, funding);
 
     const combined = shippingUSD > 0;
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(grandTotalUSD * 100),
       currency: 'usd',
       receipt_email: customerEmail,
+      ...(paymentMethodId ? { payment_method: paymentMethodId } : {}),
       description: combined
         ? `Register + shipping — ${items.length} item${items.length !== 1 ? 's' : ''} + shipping`
         : `Register sale — ${items.length} item${items.length !== 1 ? 's' : ''}`,
@@ -61,6 +76,7 @@ export async function POST(req: NextRequest) {
         subtotalUSD: priced.subtotalUSD.toFixed(2),
         taxUSD: priced.taxUSD.toFixed(2),
         shippingUSD: shippingUSD.toFixed(2),
+        cardFeeUSD: cardFeeUSD.toFixed(2),
         totalUSD: grandTotalUSD.toFixed(2),
       },
     });
@@ -71,6 +87,7 @@ export async function POST(req: NextRequest) {
       subtotalUSD: priced.subtotalUSD,
       taxUSD: priced.taxUSD,
       shippingUSD,
+      cardFeeUSD,
       totalUSD: grandTotalUSD,
     });
   } catch (err: unknown) {

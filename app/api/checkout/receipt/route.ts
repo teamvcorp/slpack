@@ -35,11 +35,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ emailed: false });
     }
 
+    // The card fee is recorded on the sale (combined-with-goods) OR on the first
+    // shipment (shipping-only). Exclude it from each package's line amount and
+    // show it once as its own line so the total isn't double-counted.
+    const cardFeeUSD =
+      (sale?.cardFeeUSD ?? 0) + shipments.reduce((s, x) => s + (x.cardFeeUSD ?? 0), 0);
+
     const packages: CombinedPackageLine[] = shipments.map((s) => ({
       carrier: s.carrier,
       serviceName: s.serviceName,
       trackingNumber: s.trackingNumber,
-      amountUSD: s.totalUSD,
+      amountUSD: Math.round((s.totalUSD - (s.cardFeeUSD ?? 0)) * 100) / 100,
     }));
 
     const html = buildCombinedReceiptHtml({
@@ -47,13 +53,14 @@ export async function POST(req: NextRequest) {
       paymentMethod: sale?.paymentMethod ?? shipments[0]?.paymentMethod ?? 'card',
       sale,
       packages,
+      cardFeeUSD: cardFeeUSD > 0 ? cardFeeUSD : undefined,
       cashTenderedUSD: sale?.cashTenderedUSD,
       changeDueUSD: sale?.changeDueUSD,
     });
 
     const goodsTotal = sale?.totalUSD ?? 0;
     const shipTotal = packages.reduce((s, p) => s + p.amountUSD, 0);
-    const grandTotal = (goodsTotal + shipTotal).toFixed(2);
+    const grandTotal = (goodsTotal + shipTotal + cardFeeUSD).toFixed(2);
 
     try {
       const { Resend } = await import('resend');

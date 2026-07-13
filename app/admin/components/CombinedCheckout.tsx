@@ -43,6 +43,10 @@ export default function CombinedCheckout({
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [cardReady, setCardReady] = useState(false);
   const [isCharging, setIsCharging] = useState(false);
+  // Credit-card surcharge, priced by the server after the card is entered.
+  const [cardFeeUSD, setCardFeeUSD] = useState(0);
+  const [chargeTotalUSD, setChargeTotalUSD] = useState(0);
+  const [awaitingFeeConfirm, setAwaitingFeeConfirm] = useState(false);
 
   const [method, setMethod] = useState<'card' | 'cash'>('card');
   const [completedSale, setCompletedSale] = useState<SaleRecord | null>(null);
@@ -101,10 +105,10 @@ export default function CombinedCheckout({
   }, [step]);
 
   // Purchase a label for one package (no charge — payment is already handled).
-  async function submitPackage(item: CartItem, pm: 'card' | 'cash', packing: number): Promise<CartResult> {
+  async function submitPackage(item: CartItem, pm: 'card' | 'cash', packing: number, cardFee = 0): Promise<CartResult> {
     const shippingUSDItem = item.rate.totalChargeUSD;
     const insuranceUSD = item.insurance?.premiumUSD ?? 0;
-    const totalUSD = shippingUSDItem + insuranceUSD + packing;
+    const totalUSD = shippingUSDItem + insuranceUSD + packing + cardFee;
     try {
       const res = await fetch('/api/shipping/submit', {
         method: 'POST',
@@ -117,6 +121,7 @@ export default function CombinedCheckout({
           shippingUSD: shippingUSDItem,
           insuranceUSD,
           packingFeeUSD: packing,
+          cardFeeUSD: cardFee,
           totalUSD,
           insurance: item.insurance,
           paymentMethod: pm,
@@ -157,13 +162,14 @@ export default function CombinedCheckout({
     });
   }
 
-  function printCombinedReceipt(sale: SaleRecord | null, res: CartResult[], pm: 'card' | 'cash') {
+  function printCombinedReceipt(sale: SaleRecord | null, res: CartResult[], pm: 'card' | 'cash', feeUSD = 0) {
     printHtml(
       buildCombinedReceiptHtml({
         timestamp: new Date().toISOString(),
         paymentMethod: pm,
         sale,
         packages: packageLines(res),
+        cardFeeUSD: feeUSD > 0 ? feeUSD : undefined,
         cashTenderedUSD: pm === 'cash' && cashInput ? cashTendered : undefined,
         changeDueUSD: pm === 'cash' && cashInput ? changeDue : undefined,
       })
@@ -171,7 +177,9 @@ export default function CombinedCheckout({
   }
 
   // Shared post-payment sequence: record goods, buy labels, print + email one receipt.
-  async function finalize(pm: 'card' | 'cash') {
+  // feeUSD is the credit-card surcharge already charged; it's recorded on the
+  // goods sale, or (for shipping-only carts) on the first package.
+  async function finalize(pm: 'card' | 'cash', feeUSD = 0) {
     setMethod(pm);
     setStep('processing');
     setErrorMsg(null);
@@ -190,7 +198,7 @@ export default function CombinedCheckout({
             customerEmail: cleanEmail,
             transactionId,
             suppressEmail: true,
-            ...(pm === 'card' ? { paymentIntentId } : {}),
+            ...(pm === 'card' ? { paymentIntentId, cardFeeUSD: feeUSD > 0 ? feeUSD : undefined } : {}),
           }),
         });
         const data = await res.json();
@@ -199,16 +207,18 @@ export default function CombinedCheckout({
       }
       setCompletedSale(sale);
 
-      // 2. Buy a label for each package (submit retries once server-side).
+      // 2. Buy a label for each package (submit retries once server-side). When
+      // there's no goods sale, record the card fee on the first package instead.
+      const feeOnFirstPackage = items.length === 0 ? feeUSD : 0;
       const res: CartResult[] = [];
       for (let i = 0; i < shipping.length; i++) {
         setProcessingMsg(`Generating label ${i + 1} of ${shipping.length}…`);
-        res.push(await submitPackage(shipping[i], pm, i === 0 ? packingFeeUSD : 0));
+        res.push(await submitPackage(shipping[i], pm, i === 0 ? packingFeeUSD : 0, i === 0 ? feeOnFirstPackage : 0));
       }
       setResults(res);
 
       // 3. One unified receipt — print now, email once (server rebuilds from records).
-      printCombinedReceipt(sale, res, pm);
+      printCombinedReceipt(sale, res, pm, feeUSD);
       if (cleanEmail) {
         fetch('/api/checkout/receipt', {
           method: 'POST',
@@ -226,26 +236,20 @@ export default function CombinedCheckout({
     }
   }
 
+  // Load Stripe and show the card entry. The PaymentIntent is created only after
+  // the card is tokenized, so the server can read funding and price the fee.
   async function handlePrepareCard() {
     setStep('processing');
     setProcessingMsg('Initializing payment…');
     setErrorMsg(null);
+    setAwaitingFeeConfirm(false);
+    setCardFeeUSD(0);
+    setClientSecret(null);
     try {
-      const res = await fetch('/api/register/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, taxRate, customerEmail: cleanEmail, shippingUSD }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.clientSecret) throw new Error(data.error ?? `Server error ${res.status}`);
-
       const { loadStripe } = await import('@stripe/stripe-js');
       const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '');
       if (!stripe) throw new Error('Stripe.js failed to load. Check NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.');
-
       stripeRef.current = stripe;
-      setClientSecret(data.clientSecret);
-      setPaymentIntentId(data.paymentIntentId ?? null);
       setStep('card');
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to initialize payment.');
@@ -254,18 +258,49 @@ export default function CombinedCheckout({
   }
 
   async function handleCharge() {
-    if (!stripeRef.current || !cardElementRef.current || !clientSecret) return;
+    if (!stripeRef.current || !cardElementRef.current) return;
     setIsCharging(true);
     setErrorMsg(null);
     try {
-      const { error } = await stripeRef.current.confirmCardPayment(clientSecret, {
-        payment_method: {
+      let secret = clientSecret;
+      let piId = paymentIntentId;
+      let feeToRecord = cardFeeUSD;
+
+      // Phase 1: tokenize, then price the credit-only surcharge server-side.
+      if (!secret) {
+        const { paymentMethod, error: pmError } = await stripeRef.current.createPaymentMethod({
+          type: 'card',
           card: cardElementRef.current,
           billing_details: { email: cleanEmail || undefined },
-        },
-      });
+        });
+        if (pmError) throw new Error(pmError.message ?? 'Could not read card');
+
+        const res = await fetch('/api/register/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, taxRate, customerEmail: cleanEmail, shippingUSD, paymentMethodId: paymentMethod.id }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.clientSecret) throw new Error(data.error ?? `Server error ${res.status}`);
+
+        secret = data.clientSecret as string;
+        piId = data.paymentIntentId ?? null;
+        feeToRecord = Number(data.cardFeeUSD) || 0;
+        setClientSecret(secret);
+        setPaymentIntentId(piId);
+        setCardFeeUSD(feeToRecord);
+        setChargeTotalUSD(Number(data.totalUSD) || grandTotal);
+
+        if (feeToRecord > 0) {
+          setAwaitingFeeConfirm(true);
+          setIsCharging(false);
+          return; // explicit confirm required (surcharge disclosure)
+        }
+      }
+
+      const { error } = await stripeRef.current.confirmCardPayment(secret);
       if (error) throw new Error(error.message ?? 'Payment declined');
-      await finalize('card');
+      await finalize('card', feeToRecord);
     } catch (err: unknown) {
       setIsCharging(false);
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
@@ -492,6 +527,16 @@ export default function CombinedCheckout({
                 Card Details
               </label>
               <div ref={mountRef} className="rounded-lg border border-navy/20 bg-white px-3 py-3 shadow-sm" />
+              <p className="mt-1.5 text-[11px] text-navy/50">
+                A processing fee applies to <span className="font-semibold">credit cards</span>; debit is exempt.
+              </p>
+              {awaitingFeeConfirm && cardFeeUSD > 0 && (
+                <div className="mt-3 space-y-1 rounded-lg border border-blue/30 bg-blue/5 px-3 py-2 text-sm">
+                  <div className="flex justify-between text-navy/60"><span>Subtotal</span><span>${grandTotal.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-navy/60"><span>Credit card processing fee</span><span>${cardFeeUSD.toFixed(2)}</span></div>
+                  <div className="flex justify-between border-t border-navy/10 pt-1 font-semibold text-navy"><span>Total to charge</span><span>${chargeTotalUSD.toFixed(2)}</span></div>
+                </div>
+              )}
               <p className="mt-1.5 text-[11px] text-navy/30">
                 Test card: 4242 4242 4242 4242 · any future date · any CVC
               </p>
@@ -562,7 +607,10 @@ export default function CombinedCheckout({
                 title={!cardReady ? 'Card element is loading…' : undefined}
                 className="flex-1 rounded-lg bg-blue px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
               >
-                {isCharging ? 'Processing…' : cardReady ? `Charge $${grandTotal.toFixed(2)}` : 'Loading card…'}
+                {isCharging ? 'Processing…'
+                  : !cardReady ? 'Loading card…'
+                  : awaitingFeeConfirm ? `Confirm $${chargeTotalUSD.toFixed(2)}`
+                  : `Charge $${grandTotal.toFixed(2)}`}
               </button>
             )}
 

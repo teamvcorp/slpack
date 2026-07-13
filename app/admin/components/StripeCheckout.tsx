@@ -18,12 +18,13 @@ async function submitItem(
   item: CartItem,
   paymentMethod: 'card' | 'cash',
   packingFeeUSD: number,
-  submitPath: string
+  submitPath: string,
+  cardFeeUSD = 0
 ): Promise<CartResult> {
   const shippingUSD = item.rate.totalChargeUSD;
   const insuranceUSD = item.insurance?.premiumUSD ?? 0;
   const dutiesUSD = item.dutiesUSD ?? 0; // international DDP only; 0 for domestic
-  const totalUSD = shippingUSD + insuranceUSD + packingFeeUSD + dutiesUSD;
+  const totalUSD = shippingUSD + insuranceUSD + packingFeeUSD + dutiesUSD + cardFeeUSD;
 
   const res = await fetch(submitPath, {
     method: 'POST',
@@ -37,6 +38,7 @@ async function submitItem(
       insuranceUSD,
       packingFeeUSD,
       dutiesUSD,
+      cardFeeUSD,
       totalUSD,
       insurance: item.insurance,
       paymentMethod,
@@ -89,6 +91,11 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
   const [packingFeeInput, setPackingFeeInput] = useState('');
   const [saveCard, setSaveCard] = useState(false);
   const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
+  // Credit-card surcharge, priced by the server after the card is entered.
+  const [cardFeeUSD, setCardFeeUSD] = useState(0);
+  const [chargeTotalUSD, setChargeTotalUSD] = useState(0);
+  // True once the card is tokenized + fee priced, awaiting the final confirm click.
+  const [awaitingFeeConfirm, setAwaitingFeeConfirm] = useState(false);
   const packingFeeUSD = Math.max(0, Number.parseFloat(packingFeeInput) || 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,13 +170,16 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
   }, [step]);
 
   // Shared post-payment step: generate labels for each package, then finish.
-  async function generateLabels(paymentMethod: 'card' | 'cash') {
+  // The packing fee and card fee are transaction-level, so they're recorded on
+  // the first item only (avoids double-counting across packages).
+  async function generateLabels(paymentMethod: 'card' | 'cash', feeUSD = 0) {
     setStep('processing');
     const results: CartResult[] = [];
     for (let i = 0; i < cart.length; i++) {
       setProcessingMsg(`Generating label ${i + 1} of ${cart.length}…`);
-      // Apply packing fee to first item only so it isn't double-counted.
-      results.push(await submitItem(cart[i], paymentMethod, i === 0 ? packingFeeUSD : 0, submitPath));
+      results.push(
+        await submitItem(cart[i], paymentMethod, i === 0 ? packingFeeUSD : 0, submitPath, i === 0 ? feeUSD : 0)
+      );
     }
     setStep('success');
     setTimeout(() => onSuccess(results, paymentMethod), 1500);
@@ -209,51 +219,30 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error ?? `Server error ${res.status}`);
-      await generateLabels('card');
+      await generateLabels('card', Number(data.feeUSD) || 0);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'The saved card could not be charged.');
       setStep('error');
     }
   }
 
+  // Load Stripe.js and show the card entry. The PaymentIntent is NOT created
+  // here — we must tokenize the card first to read its funding type and price
+  // the credit-only surcharge before setting the charge amount.
   async function handlePreparePayment(save: boolean) {
     setSaveCard(save);
     setStep('processing');
     setProcessingMsg('Initializing payment…');
     setErrorMsg(null);
+    setAwaitingFeeConfirm(false);
+    setCardFeeUSD(0);
+    setClientSecret(null);
 
     try {
-      const piRes = await fetch('/api/billing/create-payment-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amountUSD: grandTotal,
-          carrier: cart[0]?.carrier ?? 'multi',
-          serviceName: cart.length === 1 ? cart[0].rate.serviceName : `${cart.length} packages`,
-          customerEmail: billingEmail || undefined,
-          customerName: billingName || undefined,
-          saveCard: save,
-          shipmentDetails: {
-            originZip: cart[0]?.shipment.originZip,
-            destZip: cart[0]?.shipment.destZip,
-            weightLbs: cart.reduce((s, i) => s + i.shipment.weightLbs, 0),
-          },
-        }),
-      });
-
-      const piData = await piRes.json();
-      if (!piRes.ok || !piData.clientSecret) {
-        throw new Error(piData.error ?? `Server error ${piRes.status}`);
-      }
-
       const { loadStripe } = await import('@stripe/stripe-js');
-      const stripe = await loadStripe(
-        process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''
-      );
+      const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '');
       if (!stripe) throw new Error('Stripe.js failed to load. Check NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.');
-
       stripeRef.current = stripe;
-      setClientSecret(piData.clientSecret);
       setStep('card');
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to initialize payment.');
@@ -262,27 +251,65 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
   }
 
   async function handleCharge() {
-    if (!stripeRef.current || !cardElementRef.current || !clientSecret) return;
-    // Do NOT change step to 'processing' here — that would unmount the card
-    // element div and destroy the Stripe element before confirmCardPayment runs.
+    if (!stripeRef.current || !cardElementRef.current) return;
     setIsCharging(true);
     setErrorMsg(null);
 
     try {
-      const { error } = await stripeRef.current.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: cardElementRef.current,
-          billing_details: {
-            name: billingName || undefined,
-            email: billingEmail || undefined,
-          },
-        },
-      });
+      let secret = clientSecret;
+      let feeToRecord = cardFeeUSD;
 
+      // Phase 1 (first click): tokenize the card, then have the server price the
+      // credit-only surcharge and create the PaymentIntent for the grossed amount.
+      if (!secret) {
+        const { paymentMethod, error: pmError } = await stripeRef.current.createPaymentMethod({
+          type: 'card',
+          card: cardElementRef.current,
+          billing_details: { name: billingName || undefined, email: billingEmail || undefined },
+        });
+        if (pmError) throw new Error(pmError.message ?? 'Could not read card');
+
+        const piRes = await fetch('/api/billing/create-payment-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amountUSD: grandTotal,
+            paymentMethodId: paymentMethod.id,
+            carrier: cart[0]?.carrier ?? 'multi',
+            serviceName: cart.length === 1 ? cart[0].rate.serviceName : `${cart.length} packages`,
+            customerEmail: billingEmail || undefined,
+            customerName: billingName || undefined,
+            saveCard,
+            shipmentDetails: {
+              originZip: cart[0]?.shipment.originZip,
+              destZip: cart[0]?.shipment.destZip,
+              weightLbs: cart.reduce((s, i) => s + i.shipment.weightLbs, 0),
+            },
+          }),
+        });
+        const piData = await piRes.json();
+        if (!piRes.ok || !piData.clientSecret) throw new Error(piData.error ?? `Server error ${piRes.status}`);
+
+        secret = piData.clientSecret as string;
+        feeToRecord = Number(piData.feeUSD) || 0;
+        setClientSecret(secret);
+        setCardFeeUSD(feeToRecord);
+        setChargeTotalUSD(Number(piData.totalUSD) || grandTotal);
+
+        // Credit card → show the surcharge and require an explicit confirm
+        // (point-of-sale disclosure). No fee (debit/off) → confirm immediately.
+        if (feeToRecord > 0) {
+          setAwaitingFeeConfirm(true);
+          setIsCharging(false);
+          return;
+        }
+      }
+
+      // Phase 2: confirm the (already card-attached) PaymentIntent.
+      const { error } = await stripeRef.current.confirmCardPayment(secret);
       if (error) throw new Error(error.message ?? 'Payment declined');
 
-      // Payment confirmed — now safe to switch away from card step
-      await generateLabels('card');
+      await generateLabels('card', feeToRecord);
     } catch (err: unknown) {
       setIsCharging(false);
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
@@ -513,6 +540,22 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
                 ref={mountRef}
                 className="rounded-lg border border-navy/20 bg-white px-3 py-3 shadow-sm"
               />
+              <p className="mt-1.5 text-[11px] text-navy/50">
+                A processing fee applies to <span className="font-semibold">credit cards</span>; debit is exempt.
+              </p>
+              {awaitingFeeConfirm && cardFeeUSD > 0 && (
+                <div className="mt-3 space-y-1 rounded-lg border border-blue/30 bg-blue/5 px-3 py-2 text-sm">
+                  <div className="flex justify-between text-navy/60">
+                    <span>Subtotal</span><span>${grandTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-navy/60">
+                    <span>Credit card processing fee</span><span>${cardFeeUSD.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-navy/10 pt-1 font-semibold text-navy">
+                    <span>Total to charge</span><span>${chargeTotalUSD.toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
               <p className="mt-1.5 text-[11px] text-navy/30">
                 Test card: 4242 4242 4242 4242 · any future date · any CVC
               </p>
@@ -598,7 +641,9 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
                     </svg>
                     Processing…
                   </span>
-                ) : cardReady ? `Charge $${grandTotal.toFixed(2)}` : 'Loading card…'}
+                ) : !cardReady ? 'Loading card…'
+                  : awaitingFeeConfirm ? `Confirm $${chargeTotalUSD.toFixed(2)}`
+                  : `Charge $${grandTotal.toFixed(2)}`}
               </button>
             )}
 

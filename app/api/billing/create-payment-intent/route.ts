@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeEmail } from '@/lib/email';
+import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { amountUSD, carrier, serviceName, customerEmail, customerName, saveCard, shipmentDetails } =
+    const { amountUSD, paymentMethodId, carrier, serviceName, customerEmail, customerName, saveCard, shipmentDetails } =
       await req.json();
 
     if (!amountUSD || Number(amountUSD) <= 0) {
@@ -28,7 +29,19 @@ export async function POST(req: NextRequest) {
       apiVersion: '2025-02-24.acacia',
     });
 
-    const amountCents = Math.round(Number(amountUSD) * 100);
+    // Credit-only surcharge: read the card's funding type server-side, then
+    // gross up so the shop nets the base amount. Debit/prepaid pay no fee.
+    let funding: ReturnType<typeof normalizeFunding> = 'unknown';
+    if (paymentMethodId) {
+      try {
+        const pm = await stripe.paymentMethods.retrieve(String(paymentMethodId));
+        funding = normalizeFunding(pm.card?.funding);
+      } catch {
+        funding = 'unknown'; // fee-safe default (no surcharge)
+      }
+    }
+    const { feeUSD, totalUSD } = computeCardFee(Number(amountUSD), funding);
+    const amountCents = Math.round(totalUSD * 100);
 
     // When the sender opts in, attach the charge to a (reusable) Stripe customer
     // and mark the card for future off-session use, so it's saved on file.
@@ -51,6 +64,9 @@ export async function POST(req: NextRequest) {
       currency: 'usd',
       receipt_email: receiptEmail,
       description: `Shipping: ${String(carrier).toUpperCase()} — ${serviceName}`,
+      // Attach the card up front so funding could be read and the fee priced;
+      // the client confirms this same PaymentIntent (handles any 3DS).
+      ...(paymentMethodId ? { payment_method: String(paymentMethodId) } : {}),
       ...(customerId ? { customer: customerId, setup_future_usage: 'off_session' } : {}),
       metadata: {
         carrier: String(carrier),
@@ -58,10 +74,16 @@ export async function POST(req: NextRequest) {
         originZip: String(shipmentDetails?.originZip ?? ''),
         destZip: String(shipmentDetails?.destZip ?? ''),
         weightLbs: String(shipmentDetails?.weightLbs ?? ''),
+        cardFeeUSD: feeUSD.toFixed(2),
       },
     });
 
-    return NextResponse.json({ clientSecret: paymentIntent.client_secret });
+    return NextResponse.json({
+      clientSecret: paymentIntent.client_secret,
+      feeUSD,
+      totalUSD,
+      funding,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

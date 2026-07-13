@@ -114,6 +114,8 @@ export interface ShipmentLogEntry {
   packingFeeUSD?: number;
   /** International only: prepaid duties (DDP) collected from the customer. */
   dutiesUSD?: number;
+  /** Credit-card processing surcharge added to this shipment's charge (card only). */
+  cardFeeUSD?: number;
   totalUSD: number;
   trackingNumber: string | null;
   labelBase64: string | null;

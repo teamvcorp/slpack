@@ -39,6 +39,10 @@ export default function RegisterCheckout({
   const [cardReady, setCardReady] = useState(false);
   const [isCharging, setIsCharging] = useState(false);
   const [completedSale, setCompletedSale] = useState<SaleRecord | null>(null);
+  // Credit-card surcharge, priced by the server after the card is entered.
+  const [cardFeeUSD, setCardFeeUSD] = useState(0);
+  const [chargeTotalUSD, setChargeTotalUSD] = useState(0);
+  const [awaitingFeeConfirm, setAwaitingFeeConfirm] = useState(false);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stripeRef = useRef<any>(null);
@@ -82,7 +86,7 @@ export default function RegisterCheckout({
 
   async function recordSale(
     paymentMethod: 'card' | 'cash',
-    extra: { paymentIntentId?: string; cashTenderedUSD?: number }
+    extra: { paymentIntentId?: string; cashTenderedUSD?: number; cardFeeUSD?: number }
   ): Promise<SaleRecord> {
     const res = await fetch('/api/register/sale', {
       method: 'POST',
@@ -127,30 +131,22 @@ export default function RegisterCheckout({
     }
   }
 
+  // Load Stripe and show the card entry. The PaymentIntent is created only after
+  // the card is tokenized, so the server can read funding and price the fee.
   async function handlePrepareCard() {
     setStep('processing');
     setProcessingMsg('Initializing payment…');
     setErrorMsg(null);
+    setAwaitingFeeConfirm(false);
+    setCardFeeUSD(0);
+    setClientSecret(null);
     try {
-      const res = await fetch('/api/register/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, taxRate, customerEmail: cleanEmail }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.clientSecret) {
-        throw new Error(data.error ?? `Server error ${res.status}`);
-      }
-
       const { loadStripe } = await import('@stripe/stripe-js');
       const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '');
       if (!stripe) {
         throw new Error('Stripe.js failed to load. Check NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.');
       }
-
       stripeRef.current = stripe;
-      setClientSecret(data.clientSecret);
-      setPaymentIntentId(data.paymentIntentId ?? null);
       setStep('card');
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to initialize payment.');
@@ -159,24 +155,54 @@ export default function RegisterCheckout({
   }
 
   async function handleCharge() {
-    if (!stripeRef.current || !cardElementRef.current || !clientSecret) return;
-    // Don't switch to 'processing' yet — that unmounts the card element div and
-    // destroys the Stripe element before confirmCardPayment can run.
+    if (!stripeRef.current || !cardElementRef.current) return;
     setIsCharging(true);
     setErrorMsg(null);
     try {
-      const { error } = await stripeRef.current.confirmCardPayment(clientSecret, {
-        payment_method: {
+      let secret = clientSecret;
+      let piId = paymentIntentId;
+      let feeToRecord = cardFeeUSD;
+
+      // Phase 1: tokenize, then price the credit-only surcharge server-side.
+      if (!secret) {
+        const { paymentMethod, error: pmError } = await stripeRef.current.createPaymentMethod({
+          type: 'card',
           card: cardElementRef.current,
           billing_details: { email: cleanEmail || undefined },
-        },
-      });
+        });
+        if (pmError) throw new Error(pmError.message ?? 'Could not read card');
+
+        const res = await fetch('/api/register/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, taxRate, customerEmail: cleanEmail, paymentMethodId: paymentMethod.id }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.clientSecret) throw new Error(data.error ?? `Server error ${res.status}`);
+
+        secret = data.clientSecret as string;
+        piId = data.paymentIntentId ?? null;
+        feeToRecord = Number(data.cardFeeUSD) || 0;
+        setClientSecret(secret);
+        setPaymentIntentId(piId);
+        setCardFeeUSD(feeToRecord);
+        setChargeTotalUSD(Number(data.totalUSD) || totalUSD);
+
+        if (feeToRecord > 0) {
+          setAwaitingFeeConfirm(true);
+          setIsCharging(false);
+          return; // explicit confirm required (surcharge disclosure)
+        }
+      }
+
+      const { error } = await stripeRef.current.confirmCardPayment(secret);
       if (error) throw new Error(error.message ?? 'Payment declined');
 
       setStep('processing');
       setProcessingMsg('Recording sale…');
       const sale = await recordSale('card', {
-        paymentIntentId: paymentIntentId ?? undefined,
+        paymentIntentId: piId ?? undefined,
+        cardFeeUSD: feeToRecord > 0 ? feeToRecord : undefined,
       });
       finishWithSale(sale);
     } catch (err: unknown) {
@@ -324,6 +350,16 @@ export default function RegisterCheckout({
                 Card Details
               </label>
               <div ref={mountRef} className="rounded-lg border border-navy/20 bg-white px-3 py-3 shadow-sm" />
+              <p className="mt-1.5 text-[11px] text-navy/50">
+                A processing fee applies to <span className="font-semibold">credit cards</span>; debit is exempt.
+              </p>
+              {awaitingFeeConfirm && cardFeeUSD > 0 && (
+                <div className="mt-3 space-y-1 rounded-lg border border-blue/30 bg-blue/5 px-3 py-2 text-sm">
+                  <div className="flex justify-between text-navy/60"><span>Subtotal</span><span>${totalUSD.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-navy/60"><span>Credit card processing fee</span><span>${cardFeeUSD.toFixed(2)}</span></div>
+                  <div className="flex justify-between border-t border-navy/10 pt-1 font-semibold text-navy"><span>Total to charge</span><span>${chargeTotalUSD.toFixed(2)}</span></div>
+                </div>
+              )}
               <p className="mt-1.5 text-[11px] text-navy/30">
                 Test card: 4242 4242 4242 4242 · any future date · any CVC
               </p>
@@ -403,7 +439,9 @@ export default function RegisterCheckout({
                     </svg>
                     Processing…
                   </span>
-                ) : cardReady ? `Charge $${totalUSD.toFixed(2)}` : 'Loading card…'}
+                ) : !cardReady ? 'Loading card…'
+                  : awaitingFeeConfirm ? `Confirm $${chargeTotalUSD.toFixed(2)}`
+                  : `Charge $${totalUSD.toFixed(2)}`}
               </button>
             )}
 

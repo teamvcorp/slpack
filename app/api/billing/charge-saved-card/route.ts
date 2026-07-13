@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeEmail } from '@/lib/email';
+import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
 
 // POST /api/billing/charge-saved-card — charge a card already on file for the
 // sender (off-session, confirmed immediately — no Stripe Elements needed).
@@ -27,9 +28,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'No saved customer for this email' }, { status: 404 });
     }
 
+    // Credit-only surcharge: read the saved card's funding type and gross up.
+    let funding: ReturnType<typeof normalizeFunding> = 'unknown';
+    try {
+      const pm = await stripe.paymentMethods.retrieve(String(paymentMethodId));
+      funding = normalizeFunding(pm.card?.funding);
+    } catch {
+      funding = 'unknown';
+    }
+    const { feeUSD, totalUSD } = computeCardFee(Number(amountUSD), funding);
+
     try {
       const pi = await stripe.paymentIntents.create({
-        amount: Math.round(Number(amountUSD) * 100),
+        amount: Math.round(totalUSD * 100),
         currency: 'usd',
         customer: customer.id,
         payment_method: paymentMethodId,
@@ -43,11 +54,12 @@ export async function POST(req: NextRequest) {
           originZip: String(shipmentDetails?.originZip ?? ''),
           destZip: String(shipmentDetails?.destZip ?? ''),
           weightLbs: String(shipmentDetails?.weightLbs ?? ''),
+          cardFeeUSD: feeUSD.toFixed(2),
         },
       });
 
       if (pi.status === 'succeeded') {
-        return NextResponse.json({ ok: true, paymentIntentId: pi.id });
+        return NextResponse.json({ ok: true, paymentIntentId: pi.id, feeUSD, totalUSD });
       }
       // e.g. requires_action — saved-card auth needed; cashier should re-enter the card.
       return NextResponse.json(

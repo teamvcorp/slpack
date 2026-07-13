@@ -45,6 +45,8 @@ export interface SaleRecord {
   totalUSD: number;
   paymentMethod: 'card' | 'cash';
   customerEmail?: string;
+  /** Credit-card processing surcharge charged on this sale (card only; transaction-level). */
+  cardFeeUSD?: number;
   /** Stripe PaymentIntent id for card sales */
   paymentIntentId?: string;
   /** Cash handling — recorded when the cashier enters an amount tendered */

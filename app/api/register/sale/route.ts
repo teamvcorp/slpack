@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
     const customerEmail = sanitizeEmail(body.customerEmail);
     const paymentIntentId =
       typeof body.paymentIntentId === 'string' ? body.paymentIntentId : undefined;
+    const cardFeeUSD =
+      paymentMethod === 'card' && Number(body.cardFeeUSD) > 0 ? Math.round(Number(body.cardFeeUSD) * 100) / 100 : 0;
     const transactionId =
       typeof body.transactionId === 'string' ? body.transactionId : undefined;
     // Combined register+shipping sales send one unified receipt from the checkout
@@ -55,6 +57,7 @@ export async function POST(req: NextRequest) {
       totalUSD: priced.totalUSD,
       paymentMethod,
       customerEmail,
+      cardFeeUSD: cardFeeUSD > 0 ? cardFeeUSD : undefined,
       paymentIntentId: paymentMethod === 'card' ? paymentIntentId : undefined,
       transactionId,
     };
