@@ -54,7 +54,10 @@ export default function ShippingComparisonPage() {
   const [currentShipment, setCurrentShipment] = useState<ShipmentInput | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   // Modal flow: null → 'carrier-detail' → back (item added to cart) → 'checkout' → 'label'
-  const [modalStep, setModalStep] = useState<'carrier-detail' | 'checkout' | 'label' | null>(null);
+  // 'address-guard' warns when checking out an address that wasn't validated.
+  const [modalStep, setModalStep] = useState<'carrier-detail' | 'checkout' | 'label' | 'address-guard' | null>(null);
+  // Destination address validated by a carrier or approved by staff (checkout gate).
+  const [addressValidated, setAddressValidated] = useState(false);
   const [previewCarrier, setPreviewCarrier] = useState<{ carrier: CarrierKey; rate: ShippingRate } | null>(null);
   const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
@@ -153,7 +156,16 @@ export default function ShippingComparisonPage() {
     // Keep form as-is (address reuse) but clear rate results so staff can get fresh rates
     setResults(INITIAL_RESULTS);
     setCurrentShipment(null);
+    setAddressValidated(false);
     setFormKey((k) => k + 1);
+  }
+
+  // Checkout gate: require the address to be validated (carrier) or approved
+  // (staff) first — prevents shipping unverified addresses that incur carrier
+  // address-correction fees. The guard is an override, never a hard block.
+  function handleCheckoutClick() {
+    if (addressValidated) setModalStep('checkout');
+    else setModalStep('address-guard');
   }
 
   function handlePaymentSuccess(results: CartResult[]) {
@@ -167,6 +179,7 @@ export default function ShippingComparisonPage() {
     setCartResults(null);
     setModalStep(null);
     setCurrentShipment(null);
+    setAddressValidated(false);
     setResults(INITIAL_RESULTS);
     setFormKey((k) => k + 1);
   }
@@ -204,7 +217,7 @@ export default function ShippingComparisonPage() {
       </div>
 
       {/* Shipment form */}
-      <ShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} />
+      <ShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} onAddressStatus={setAddressValidated} />
 
       {/* Carrier panels — 1 col mobile, 2 col tablet+ */}
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -289,7 +302,7 @@ export default function ShippingComparisonPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setModalStep('checkout')}
+                onClick={handleCheckoutClick}
                 className="rounded-lg bg-blue px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
               >
                 Checkout ({cart.length}) →
@@ -334,6 +347,40 @@ export default function ShippingComparisonPage() {
           results={cartResults}
           onClose={handleLabelDone}
         />
+      )}
+
+      {/* Address guardrail — shown at checkout when the address wasn't validated.
+          It's an override (staff can still ship), not a hard block. */}
+      {modalStep === 'address-guard' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-yellow-100 text-2xl">⚠️</div>
+            <h3 className="mt-3 text-center text-lg font-bold text-navy">Address not validated</h3>
+            <p className="mt-2 text-center text-sm leading-relaxed text-navy/60">
+              This destination hasn&apos;t been validated. Shipping an unverified address can trigger
+              carrier <span className="font-semibold text-navy">address-correction fees</span> and delays.
+            </p>
+            <p className="mt-1 text-center text-xs text-navy/40">
+              Use <span className="font-semibold">Validate</span> on the form, or confirm you&apos;ve checked it.
+            </p>
+            <div className="mt-5 space-y-2">
+              <button
+                type="button"
+                onClick={() => setModalStep(null)}
+                className="w-full rounded-lg bg-blue px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy"
+              >
+                ← Go back &amp; validate
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAddressValidated(true); setModalStep('checkout'); }}
+                className="w-full rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream"
+              >
+                I&apos;ve verified this address — continue
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     const {
-      originZip, destZip, destCountry, residential,
+      originZip, destZip, destCity, destState, destCountry, residential,
       weightLbs, lengthIn, widthIn, heightIn,
     } = await req.json();
     requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn };
@@ -74,6 +74,10 @@ export async function POST(req: NextRequest) {
           ShipTo: {
             Name: 'Customer',
             Address: {
+              // City/State included because some ZIPs (e.g. 78133) can't be
+              // resolved by UPS from postal code alone → 111542 Invalid Destination.
+              ...(destCity ? { City: String(destCity) } : {}),
+              ...(destState ? { StateProvinceCode: String(destState) } : {}),
               PostalCode: normalizePostal(destZip, destCountry),
               CountryCode: String(destCountry || 'US'),
               // Presence of this element marks a residential delivery (surcharge applies);

@@ -22,6 +22,10 @@ function formatExp(s?: string): string {
 interface Props {
   onSubmit: (data: ShipmentInput) => void;
   loading: boolean;
+  /** Notifies the page when the destination address becomes validated
+   *  (by a carrier) or is manually approved by staff — drives the checkout
+   *  guardrail. Resets to false whenever an address field is edited. */
+  onAddressStatus?: (validated: boolean) => void;
 }
 
 interface AddressResult {
@@ -85,12 +89,14 @@ const COUNTRIES = [
   { code: 'IN', label: 'India' },
 ];
 
-export default function ShipmentForm({ onSubmit, loading }: Props) {
+export default function ShipmentForm({ onSubmit, loading, onAddressStatus }: Props) {
   const [form, setForm] = useState<ShipmentInput>(DEFAULTS);
   const [validating, setValidating] = useState(false);
   const [zipLookup, setZipLookup] = useState(false);
   const [addrResult, setAddrResult] = useState<AddressResult | null>(null);
   const [addrError, setAddrError] = useState<string | null>(null);
+  // Staff manually approved the address as-is (used when carriers can't confirm).
+  const [addrApproved, setAddrApproved] = useState(false);
 
   // ── Sender typeahead + ID verification ───────────────────────────────────
   const [senderId, setSenderId] = useState<string | null>(null);
@@ -249,7 +255,17 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
     if (['destStreet', 'destZip', 'destCity', 'destState', 'destCountry'].includes(key as string)) {
       setAddrResult(null);
       setAddrError(null);
+      // Editing the address invalidates any prior validation/approval.
+      setAddrApproved(false);
+      onAddressStatus?.(false);
     }
+  }
+
+  /** Staff override: mark the entered address as verified so checkout can proceed
+   *  even when carrier validation is unavailable (e.g. UPS product not enabled). */
+  function approveAddressAsEntered() {
+    setAddrApproved(true);
+    onAddressStatus?.(true);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -347,6 +363,10 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
       const uniqueMessages = [...new Set(allMessages)];
 
       setAddrResult({ ...primary, messages: uniqueMessages });
+      // A clean carrier validation counts as validated; otherwise staff can
+      // apply the suggestion or approve as-entered to proceed.
+      setAddrApproved(false);
+      onAddressStatus?.(Boolean(primary.valid));
     } catch (err) {
       setAddrError(err instanceof Error ? err.message : 'Network error');
     } finally {
@@ -366,6 +386,9 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
       destCountry: s.country || prev.destCountry,
     }));
     setAddrResult(null);
+    // Applying the carrier's corrected address counts as validated.
+    setAddrApproved(true);
+    onAddressStatus?.(true);
   }
 
   const input =
@@ -620,6 +643,28 @@ export default function ShipmentForm({ onSubmit, loading }: Props) {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Manual override: when carriers can't confirm, staff can approve as-entered
+          so a label can still be made. Skipped once already validated/approved. */}
+      {!addrApproved && (addrError || (addrResult && !addrResult.valid)) && (
+        <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-navy/15 bg-cream px-3 py-2">
+          <span className="text-[11px] text-navy/60">
+            Carrier couldn&apos;t confirm this address. Double-check it, then approve to continue.
+          </span>
+          <button
+            type="button"
+            onClick={approveAddressAsEntered}
+            className="shrink-0 rounded-lg border border-navy/30 bg-white px-2.5 py-1 text-[11px] font-semibold text-navy/80 hover:bg-white"
+          >
+            ✓ Approve address as entered
+          </button>
+        </div>
+      )}
+      {addrApproved && (
+        <div className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[11px] font-semibold text-green-700">
+          ✓ Address approved by staff — verified manually
         </div>
       )}
 

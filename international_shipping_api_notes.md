@@ -79,6 +79,36 @@ International is a **parallel** implementation — nothing domestic was forked:
   (array or object) → `Form.Image.GraphicImage` (base64) + `Form.Image.ImageFormat.Code`.
 - Verified sandbox result: MX label returned LABEL (GIF) + COMMERCIAL_INVOICE (PDF).
 
+## HS code lookup + DDP duties (added 2026-07-07)
+
+- **HS keyword search** — offline dataset `data/hsCodes.json` (5,613 official WCO HS-2022
+  6-digit codes; loaded server-side only). Endpoint `app/api/shipping/intl/hs-search`
+  (GET `?q=`). Descriptions are formal, so colloquial terms ("coffee mug") won't match —
+  that's what AI Suggest is for.
+- **AI Suggest** — `app/api/shipping/intl/hs-suggest` (POST `{description}`) → Claude
+  (`claude-haiku-4-5`, structured output). Requires env `ANTHROPIC_API_KEY`; without it
+  returns a clean 503 and keyword search still works. Always staff-verified.
+- **DDP prepaid duties** — captured in `CustomsFormModal` when Incoterm = DDP, flows as
+  `dutiesUSD` through cart → `StripeCheckout` grand total → PaymentIntent → shipment log
+  (additive optional `dutiesUSD` on `CartItem`/`ShipmentLogEntry`; 0 for domestic).
+  - **Manual entry is the reliable path for both carriers.**
+  - **FedEx EDT** (Estimated Duties & Taxes — the RATE estimate, NOT the ETD document
+    feature) endpoint `app/api/shipping/intl/fedex/estimate-duties`. Gated behind env
+    `FEDEX_EDT_ENABLED=true`. **EDT is NOT enabled on the account yet** — until it is, the
+    sandbox returns `totalDutiesAndTaxes: 0.0` and the endpoint short-circuits to
+    `{estimatedDutiesUSD:null, enabled:false}` so staff enter duties manually. When EDT is
+    enabled, set the flag; the amount is parsed from
+    `output.rateReplyDetails[].ratedShipmentDetails[].totalDutiesAndTaxes.amount`
+    (add `edtRequestType:'ALL'` to the rate request — already wired).
+  - Note: **EDT ≠ ETD.** EDT = duty estimate (this feature); ETD = electronic trade
+    documents (`FEDEX_ETD_ENABLED`, the invoice-upload feature above).
+
+## New env vars (both optional; features degrade gracefully)
+
+- `ANTHROPIC_API_KEY` — enables HS AI Suggest (keyword search works without it).
+- `FEDEX_EDT_ENABLED=true` — enables the FedEx duty estimate (manual entry otherwise).
+- `FEDEX_ETD_ENABLED=true` — enables electronic commercial-invoice upload (prints regardless).
+
 ## Guardrails / TODO before production
 
 - **EEI/AES (ITN) filing** kicks in at **≥ $2,500 per commodity** (US Census) —
