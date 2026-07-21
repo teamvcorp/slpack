@@ -49,10 +49,24 @@ export async function GET(req: NextRequest) {
       if ('deleted' in reader) {
         return NextResponse.json({ ...base, readerStatus: 'deleted' });
       }
+      const action = reader.action;
       return NextResponse.json({
         ...base,
         readerStatus: reader.status ?? 'unknown',
         deviceType: reader.device_type ?? null,
+        // Diagnostics — what Stripe support asks for + what reveals a stale update.
+        serialNumber: reader.serial_number ?? null,
+        firmware: reader.device_sw_version ?? null,
+        ipAddress: reader.ip_address ?? null,
+        livemode: reader.livemode ?? null,
+        lastAction: action
+          ? {
+              type: action.type,
+              status: action.status,
+              failureCode: action.failure_code ?? null,
+              failureMessage: action.failure_message ?? null,
+            }
+          : null,
       });
     } catch (err) {
       return NextResponse.json({

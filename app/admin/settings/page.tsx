@@ -194,6 +194,15 @@ function ReceiptPrinterCard() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Card reader (Stripe Terminal S700/S710)
 // ─────────────────────────────────────────────────────────────────────────────
+interface ReaderDiagnostics {
+  deviceType: string | null;
+  serialNumber: string | null;
+  firmware: string | null;
+  ipAddress: string | null;
+  livemode: boolean | null;
+  lastAction: { type: string; status: string; failureCode: string | null; failureMessage: string | null } | null;
+}
+
 function CardReaderCard() {
   const [loading, setLoading] = useState(true);
   const [readerId, setReaderId] = useState('');
@@ -204,9 +213,12 @@ function CardReaderCard() {
   const [pairLabel, setPairLabel] = useState('Counter reader');
   const [saving, setSaving] = useState(false);
   const [pairing, setPairing] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diag, setDiag] = useState<ReaderDiagnostics | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   async function loadStatus() {
+    setDiagLoading(true);
     try {
       const res = await fetch('/api/admin/settings/terminal?status=1', { cache: 'no-store' });
       if (res.ok) {
@@ -215,11 +227,20 @@ function CardReaderCard() {
         setLabel(d.label ?? '');
         setEnabled(Boolean(d.enabled));
         setReaderStatus(d.readerStatus ?? '');
+        setDiag({
+          deviceType: d.deviceType ?? null,
+          serialNumber: d.serialNumber ?? null,
+          firmware: d.firmware ?? null,
+          ipAddress: d.ipAddress ?? null,
+          livemode: typeof d.livemode === 'boolean' ? d.livemode : null,
+          lastAction: d.lastAction ?? null,
+        });
       }
     } catch {
       /* leave defaults */
     } finally {
       setLoading(false);
+      setDiagLoading(false);
     }
   }
 
@@ -303,13 +324,50 @@ function CardReaderCard() {
                 </span>
               </div>
               <p className="mt-0.5 font-mono text-[11px] text-navy/40">{readerId}</p>
+
+              {diag && (
+                <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-navy/10 pt-3 text-[12px]">
+                  <dt className="text-navy/50">Mode</dt>
+                  <dd className={`font-medium ${diag.livemode === false ? 'text-amber-700' : 'text-navy'}`}>
+                    {diag.livemode === null ? '—' : diag.livemode ? 'Live' : 'Test'}
+                  </dd>
+                  <dt className="text-navy/50">Device</dt>
+                  <dd className="font-medium text-navy">{diag.deviceType ?? '—'}</dd>
+                  <dt className="text-navy/50">Firmware</dt>
+                  <dd className="font-mono text-navy">{diag.firmware ?? '—'}</dd>
+                  <dt className="text-navy/50">Serial</dt>
+                  <dd className="font-mono text-navy">{diag.serialNumber ?? '—'}</dd>
+                  <dt className="text-navy/50">IP</dt>
+                  <dd className="font-mono text-navy">{diag.ipAddress ?? '—'}</dd>
+                  {diag.lastAction && (
+                    <>
+                      <dt className="text-navy/50">Last action</dt>
+                      <dd className="font-medium text-navy">
+                        {diag.lastAction.type} · {diag.lastAction.status}
+                        {diag.lastAction.failureMessage ? (
+                          <span className="block text-[11px] text-red">{diag.lastAction.failureMessage}</span>
+                        ) : null}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              )}
+
               <button
                 type="button"
                 onClick={loadStatus}
-                className="mt-2 text-xs font-medium text-blue hover:underline"
+                disabled={diagLoading}
+                className="mt-3 text-xs font-medium text-blue hover:underline disabled:opacity-50"
               >
-                Refresh status
+                {diagLoading ? 'Running…' : 'Run diagnostics'}
               </button>
+
+              <p className="mt-2 text-[11px] leading-relaxed text-navy/40">
+                Chip/tap not working but swipe does? Confirm the Firmware above matches the current
+                version on the Stripe Dashboard reader page — if it lags, the on-device update
+                hasn&apos;t landed. If it&apos;s current, share the Serial and Reader ID above with
+                Stripe Terminal support for a hardware check.
+              </p>
             </div>
           ) : (
             <p className="text-sm text-navy/50">No reader paired yet.</p>
