@@ -69,6 +69,10 @@ function connect(ip: string, port: number): Promise<EposPrinter> {
   const key = `${ip}:${port}`;
   if (connection && connection.key === key) return Promise.resolve(connection.printer);
 
+  // Encrypt over the SSL port (8043) — required from an HTTPS page. On port 8008
+  // (e.g. the app served from http://localhost) use a plain connection instead.
+  const useSsl = port === 8043;
+
   return new Promise<EposPrinter>((resolve, reject) => {
     const sdk = getSdk();
     const device = new sdk.ePOSDevice();
@@ -84,7 +88,7 @@ function connect(ip: string, port: number): Promise<EposPrinter> {
       device.createDevice(
         'local_printer',
         device.DEVICE_TYPE_PRINTER,
-        { crypto: true, buffer: false },
+        { crypto: useSsl, buffer: false },
         (printer: any, code: string) => {
           clearTimeout(timer);
           if (code !== 'OK' || !printer) {
