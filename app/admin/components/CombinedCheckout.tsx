@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from 'react';
-import { buildCombinedReceiptHtml, type CombinedPackageLine } from '@/lib/receipt';
+import { buildCombinedReceiptHtml, type CombinedPackageLine, type CombinedReceiptData } from '@/lib/receipt';
 import { sanitizeEmail } from '@/lib/email';
-import { printHtml } from './printHtml';
+import { printReceipt } from './receiptPrinter';
+import { renderCombined } from '@/lib/eposReceipt';
 import ShippingLabelModal from './ShippingLabelModal';
 import type { RegisterLineItem, SaleRecord } from '../types/register';
 import type { CartItem, CartResult } from '../types/shipping';
@@ -162,18 +163,25 @@ export default function CombinedCheckout({
     });
   }
 
-  function printCombinedReceipt(sale: SaleRecord | null, res: CartResult[], pm: 'card' | 'cash', feeUSD = 0) {
-    printHtml(
-      buildCombinedReceiptHtml({
-        timestamp: new Date().toISOString(),
-        paymentMethod: pm,
-        sale,
-        packages: packageLines(res),
-        cardFeeUSD: feeUSD > 0 ? feeUSD : undefined,
-        cashTenderedUSD: pm === 'cash' && cashInput ? cashTendered : undefined,
-        changeDueUSD: pm === 'cash' && cashInput ? changeDue : undefined,
-      })
-    );
+  // openDrawer: only for a fresh cash charge (renderCombined ignores it on card);
+  // reprints pass false so re-printing never re-opens the drawer.
+  function printCombinedReceipt(
+    sale: SaleRecord | null,
+    res: CartResult[],
+    pm: 'card' | 'cash',
+    feeUSD = 0,
+    openDrawer = false
+  ) {
+    const data: CombinedReceiptData = {
+      timestamp: new Date().toISOString(),
+      paymentMethod: pm,
+      sale,
+      packages: packageLines(res),
+      cardFeeUSD: feeUSD > 0 ? feeUSD : undefined,
+      cashTenderedUSD: pm === 'cash' && cashInput ? cashTendered : undefined,
+      changeDueUSD: pm === 'cash' && cashInput ? changeDue : undefined,
+    };
+    printReceipt((p) => renderCombined(p, data, { openDrawer }), buildCombinedReceiptHtml(data));
   }
 
   // Shared post-payment sequence: record goods, buy labels, print + email one receipt.
@@ -218,7 +226,7 @@ export default function CombinedCheckout({
       setResults(res);
 
       // 3. One unified receipt — print now, email once (server rebuilds from records).
-      printCombinedReceipt(sale, res, pm, feeUSD);
+      printCombinedReceipt(sale, res, pm, feeUSD, true);
       if (cleanEmail) {
         fetch('/api/checkout/receipt', {
           method: 'POST',

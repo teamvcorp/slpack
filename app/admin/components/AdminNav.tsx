@@ -11,6 +11,7 @@ const NAV = [
   { label: 'International', href: '/admin/shipping-intl' },
   { label: 'Reports', href: '/admin/log' },
   { label: 'Pickup', href: '/admin/pickup' },
+  { label: 'Settings', href: '/admin/settings' },
 ];
 
 export default function AdminNav() {

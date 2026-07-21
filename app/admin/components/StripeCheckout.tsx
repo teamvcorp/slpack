@@ -3,6 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import type { CartItem, CartResult } from '../types/shipping';
 import { sanitizeEmail } from '@/lib/email';
+import { buildCombinedReceiptHtml, type CombinedPackageLine, type CombinedReceiptData } from '@/lib/receipt';
+import { printReceipt } from './receiptPrinter';
+import { renderCombined } from '@/lib/eposReceipt';
 
 interface Props {
   cart: CartItem[];
@@ -181,6 +184,38 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
         await submitItem(cart[i], paymentMethod, i === 0 ? packingFeeUSD : 0, submitPath, i === 0 ? feeUSD : 0)
       );
     }
+
+    // Print a thermal payment receipt for this charge. Package amounts fold in
+    // per-item insurance/duties plus the transaction-level packing fee (on the
+    // first package) so the printed total matches what was charged. The drawer
+    // opens for cash only; printReceipt falls back to the browser dialog if the
+    // Epson is disabled/unreachable.
+    const packages: CombinedPackageLine[] = cart.map((item, i) => {
+      const r = results[i];
+      const amountUSD =
+        item.rate.totalChargeUSD +
+        (item.insurance?.premiumUSD ?? 0) +
+        (item.dutiesUSD ?? 0) +
+        (i === 0 ? packingFeeUSD : 0);
+      return {
+        carrier: item.carrier,
+        serviceName: item.rate.serviceName,
+        trackingNumber: r && !r.labelError ? r.trackingNumber : null,
+        amountUSD,
+      };
+    });
+    const receiptData: CombinedReceiptData = {
+      timestamp: new Date().toISOString(),
+      paymentMethod,
+      sale: null,
+      packages,
+      cardFeeUSD: feeUSD > 0 ? feeUSD : undefined,
+    };
+    printReceipt(
+      (p) => renderCombined(p, receiptData, { openDrawer: true }),
+      buildCombinedReceiptHtml(receiptData)
+    );
+
     setStep('success');
     setTimeout(() => onSuccess(results, paymentMethod), 1500);
   }

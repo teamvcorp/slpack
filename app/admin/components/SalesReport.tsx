@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { buildSaleReceiptHtml, buildShipmentReceiptHtml } from '@/lib/receipt';
 import { printHtml } from './printHtml';
+import { printReceipt } from './receiptPrinter';
+import { renderSale } from '@/lib/eposReceipt';
 import type { ReportPeriod } from '@/lib/reportPeriod';
 import type { UnifiedSale, UnifiedSalesResponse } from '../types/reports';
 
@@ -44,8 +46,11 @@ export default function SalesReport() {
 
   function handleReprint(sale: UnifiedSale) {
     if (sale.source === 'register' && sale.register) {
-      printHtml(buildSaleReceiptHtml(sale.register));
+      // Reprint never opens the cash drawer (not a new transaction).
+      const register = sale.register;
+      printReceipt((p) => renderSale(p, register, { openDrawer: false }), buildSaleReceiptHtml(register));
     } else if (sale.source === 'shipping' && sale.shipment) {
+      // Wide, email-style shipment receipt — stays on the browser print path.
       printHtml(buildShipmentReceiptHtml(sale.shipment));
     }
   }

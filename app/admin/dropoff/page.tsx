@@ -3,7 +3,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { detectCarrier, trackingUrl, DROPOFF_CARRIER_LABELS, DROPOFF_CARRIERS } from '@/lib/dropoff';
 import { buildDropoffReceiptHtml } from '@/lib/receipt';
-import { printHtml } from '../components/printHtml';
+import { printReceipt as printReceiptToPrinter } from '../components/receiptPrinter';
+import { renderDropoff } from '@/lib/eposReceipt';
 import type { DropoffCarrier, DropoffRecord } from '../types/dropoff';
 
 const CARRIER_OPTIONS: DropoffCarrier[] = DROPOFF_CARRIERS;
@@ -90,7 +91,10 @@ export default function DropoffScanPage() {
     setMessage(null);
     try {
       // Receipt lists oldest-first; `scans` is newest-first.
-      if (printReceipt) printHtml(buildDropoffReceiptHtml([...scans].reverse()));
+      if (printReceipt) {
+        const ordered = [...scans].reverse();
+        printReceiptToPrinter((p) => renderDropoff(p, ordered), buildDropoffReceiptHtml(ordered));
+      }
 
       const email = customerEmail.trim();
       let emailedNote = '';
@@ -331,7 +335,12 @@ export default function DropoffScanPage() {
                             {s.receiptEmailed && <span className="text-green-700">✓ emailed</span>}
                             <button
                               type="button"
-                              onClick={() => printHtml(buildDropoffReceiptHtml(s))}
+                              onClick={() =>
+                                printReceiptToPrinter(
+                                  (p) => renderDropoff(p, s),
+                                  buildDropoffReceiptHtml(s)
+                                )
+                              }
                               className="rounded-md border border-navy/15 bg-white px-2 py-0.5 font-medium text-navy/70 hover:bg-cream"
                             >
                               Print
