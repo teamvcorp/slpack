@@ -6,6 +6,7 @@ import { sanitizeEmail } from '@/lib/email';
 import { buildCombinedReceiptHtml, type CombinedPackageLine, type CombinedReceiptData } from '@/lib/receipt';
 import { printReceipt } from './receiptPrinter';
 import { renderCombined } from '@/lib/eposReceipt';
+import { getTerminalEnabled, startReaderPayment, waitForReader, cancelReaderPayment } from './stripeTerminal';
 
 interface Props {
   cart: CartItem[];
@@ -74,7 +75,7 @@ const CARRIER_COLORS: Record<string, string> = {
   dhl: '#D40511',
 };
 
-type Step = 'review' | 'consent' | 'card' | 'processing' | 'success' | 'error';
+type Step = 'review' | 'consent' | 'card' | 'reader' | 'processing' | 'success' | 'error';
 
 interface SavedCard {
   id: string;
@@ -100,6 +101,13 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
   // True once the card is tokenized + fee priced, awaiting the final confirm click.
   const [awaitingFeeConfirm, setAwaitingFeeConfirm] = useState(false);
   const packingFeeUSD = Math.max(0, Number.parseFloat(packingFeeInput) || 0);
+  // Stripe Terminal (card reader) — shown only when a reader is paired + enabled.
+  const [showReader, setShowReader] = useState(false);
+  const readerPidRef = useRef<string | null>(null);
+  const readerAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    getTerminalEnabled().then(setShowReader);
+  }, []);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stripeRef = useRef<any>(null);
@@ -352,6 +360,46 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
     }
   }
 
+  // Charge on the physical reader (server-driven). No CardElement, no surcharge.
+  async function handleChargeOnReader() {
+    setStep('reader');
+    setErrorMsg(null);
+    const ac = new AbortController();
+    readerAbortRef.current = ac;
+    try {
+      const label = cart.length === 1 ? cart[0].rate.serviceName : `${cart.length} packages`;
+      const { paymentIntentId: pid } = await startReaderPayment({
+        amountUSD: grandTotal,
+        description: `Shipping — ${label}`,
+        customerEmail: billingEmail || undefined,
+      });
+      readerPidRef.current = pid;
+      const result = await waitForReader(pid, { signal: ac.signal });
+      if (result.status === 'canceled') {
+        readerPidRef.current = null;
+        setStep('review');
+        return;
+      }
+      if (result.status !== 'succeeded') {
+        throw new Error(result.failureMessage ?? 'The card payment was not completed.');
+      }
+      readerPidRef.current = null;
+      await generateLabels('card', 0); // no in-person surcharge
+    } catch (err: unknown) {
+      readerPidRef.current = null;
+      setErrorMsg(err instanceof Error ? err.message : 'Reader payment failed.');
+      setStep('error');
+    }
+  }
+
+  async function handleCancelReader() {
+    readerAbortRef.current?.abort();
+    const pid = readerPidRef.current;
+    readerPidRef.current = null;
+    if (pid) await cancelReaderPayment(pid);
+    setStep('review');
+  }
+
   if (step === 'consent') {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/60 p-4 backdrop-blur-sm">
@@ -597,6 +645,15 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
             </div>
           )}
 
+          {/* Reader — waiting for the customer to tap/insert */}
+          {step === 'reader' && (
+            <div className="mt-4 flex flex-col items-center gap-2 rounded-xl bg-blue/5 px-4 py-6 text-center">
+              <div className="text-3xl">💳</div>
+              <p className="text-sm font-semibold text-navy">Follow the prompts on the reader</p>
+              <p className="text-xs text-navy/50">Ask the customer to tap, insert, or swipe their card.</p>
+            </div>
+          )}
+
           {/* Processing message */}
           {step === 'processing' && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-navy/60">
@@ -617,11 +674,11 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
         <div className="flex gap-3 border-t border-navy/10 px-6 py-4">
           <button
             type="button"
-            onClick={onClose}
+            onClick={step === 'reader' ? handleCancelReader : onClose}
             disabled={step === 'processing'}
             className="rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream disabled:opacity-40"
           >
-            Cancel
+            {step === 'reader' ? 'Cancel payment' : 'Cancel'}
           </button>
 
           <div className="flex flex-1 gap-2">
@@ -634,13 +691,33 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
                 >
                   💵 Cash
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setStep('consent')}
-                  className="flex-1 rounded-lg bg-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
-                >
-                  💳 Card
-                </button>
+                {showReader ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleChargeOnReader}
+                      className="flex-1 rounded-lg bg-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
+                    >
+                      💳 Tap on reader
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStep('consent')}
+                      title="Key in the card number manually"
+                      className="rounded-lg border border-navy/20 px-3 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream"
+                    >
+                      Key in
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setStep('consent')}
+                    className="flex-1 rounded-lg bg-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
+                  >
+                    💳 Card
+                  </button>
+                )}
               </>
             )}
 

@@ -5,6 +5,7 @@ import { buildSaleReceiptHtml } from '@/lib/receipt';
 import { sanitizeEmail } from '@/lib/email';
 import { printReceipt } from './receiptPrinter';
 import { renderSale } from '@/lib/eposReceipt';
+import { getTerminalEnabled, startReaderPayment, waitForReader, cancelReaderPayment } from './stripeTerminal';
 import type { RegisterLineItem, SaleRecord } from '../types/register';
 
 interface Props {
@@ -19,7 +20,7 @@ interface Props {
   onCompleted: () => void;
 }
 
-type Step = 'review' | 'cash' | 'card' | 'processing' | 'success' | 'error';
+type Step = 'review' | 'cash' | 'card' | 'reader' | 'processing' | 'success' | 'error';
 
 export default function RegisterCheckout({
   items,
@@ -44,6 +45,14 @@ export default function RegisterCheckout({
   const [cardFeeUSD, setCardFeeUSD] = useState(0);
   const [chargeTotalUSD, setChargeTotalUSD] = useState(0);
   const [awaitingFeeConfirm, setAwaitingFeeConfirm] = useState(false);
+  // Stripe Terminal (card reader) — shown only when a reader is paired + enabled.
+  const [showReader, setShowReader] = useState(false);
+  const readerPidRef = useRef<string | null>(null);
+  const readerAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    getTerminalEnabled().then(setShowReader);
+  }, []);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stripeRef = useRef<any>(null);
@@ -213,6 +222,44 @@ export default function RegisterCheckout({
     }
   }
 
+  // Charge on the physical reader (server-driven). No CardElement, no surcharge.
+  async function handleChargeOnReader() {
+    setStep('reader');
+    setErrorMsg(null);
+    const ac = new AbortController();
+    readerAbortRef.current = ac;
+    try {
+      const { paymentIntentId } = await startReaderPayment({ items, taxRate, customerEmail: cleanEmail });
+      readerPidRef.current = paymentIntentId;
+      const result = await waitForReader(paymentIntentId, { signal: ac.signal });
+      if (result.status === 'canceled') {
+        readerPidRef.current = null;
+        setStep('review');
+        return;
+      }
+      if (result.status !== 'succeeded') {
+        throw new Error(result.failureMessage ?? 'The card payment was not completed.');
+      }
+      setStep('processing');
+      setProcessingMsg('Recording sale…');
+      const sale = await recordSale('card', { paymentIntentId });
+      readerPidRef.current = null;
+      finishWithSale(sale);
+    } catch (err: unknown) {
+      readerPidRef.current = null;
+      setErrorMsg(err instanceof Error ? err.message : 'Reader payment failed.');
+      setStep('error');
+    }
+  }
+
+  async function handleCancelReader() {
+    readerAbortRef.current?.abort();
+    const pid = readerPidRef.current;
+    readerPidRef.current = null;
+    if (pid) await cancelReaderPayment(pid);
+    setStep('review');
+  }
+
   // ── Success screen ─────────────────────────────────────────────────────────
   if (step === 'success' && completedSale) {
     return (
@@ -372,6 +419,15 @@ export default function RegisterCheckout({
             </div>
           )}
 
+          {/* Reader — waiting for the customer to tap/insert */}
+          {step === 'reader' && (
+            <div className="mt-4 flex flex-col items-center gap-2 rounded-xl bg-blue/5 px-4 py-6 text-center">
+              <div className="text-3xl">💳</div>
+              <p className="text-sm font-semibold text-navy">Follow the prompts on the reader</p>
+              <p className="text-xs text-navy/50">Ask the customer to tap, insert, or swipe their card.</p>
+            </div>
+          )}
+
           {/* Processing */}
           {step === 'processing' && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-navy/60">
@@ -392,11 +448,17 @@ export default function RegisterCheckout({
         <div className="flex gap-3 border-t border-navy/10 px-6 py-4">
           <button
             type="button"
-            onClick={step === 'cash' || step === 'card' ? () => setStep('review') : onClose}
+            onClick={
+              step === 'reader'
+                ? handleCancelReader
+                : step === 'cash' || step === 'card'
+                  ? () => setStep('review')
+                  : onClose
+            }
             disabled={step === 'processing'}
             className="rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream disabled:opacity-40"
           >
-            {step === 'cash' || step === 'card' ? 'Back' : 'Cancel'}
+            {step === 'reader' ? 'Cancel payment' : step === 'cash' || step === 'card' ? 'Back' : 'Cancel'}
           </button>
 
           <div className="flex flex-1 gap-2">
@@ -409,13 +471,33 @@ export default function RegisterCheckout({
                 >
                   💵 Cash
                 </button>
-                <button
-                  type="button"
-                  onClick={handlePrepareCard}
-                  className="flex-1 rounded-lg bg-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
-                >
-                  💳 Card
-                </button>
+                {showReader ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleChargeOnReader}
+                      className="flex-1 rounded-lg bg-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
+                    >
+                      💳 Tap on reader
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePrepareCard}
+                      title="Key in the card number manually"
+                      className="rounded-lg border border-navy/20 px-3 py-2.5 text-sm font-medium text-navy/70 transition-colors hover:bg-cream"
+                    >
+                      Key in
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handlePrepareCard}
+                    className="flex-1 rounded-lg bg-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy active:scale-95"
+                  >
+                    💳 Card
+                  </button>
+                )}
               </>
             )}
 
