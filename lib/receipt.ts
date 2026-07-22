@@ -2,8 +2,11 @@ import type { SaleRecord } from '@/app/admin/types/register';
 import type { DropoffRecord, DropoffPeriod } from '@/app/admin/types/dropoff';
 import type { ShipmentLogEntry, CarrierKey } from '@/app/admin/types/shipping';
 import { DROPOFF_CARRIER_LABELS, trackingUrl } from '@/lib/dropoff';
+import { SITE } from '@/lib/siteConfig';
 
 const SHOP_NAME = 'Storm Lake Pack & Ship';
+const SHOP_SLOGAN = 'Shipping made easy';
+const SHOP_ADDRESS = `${SITE.address.street} · ${SITE.address.city}, ${SITE.address.region} ${SITE.address.postalCode}`;
 
 const CARRIER_LABELS: Record<CarrierKey, string> = {
   fedex: 'FedEx',
@@ -22,6 +25,22 @@ function esc(value: unknown): string {
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string
   );
+}
+
+/**
+ * Shared branded header for the thermal-sized receipts (sales, combined, drop-off):
+ * a little top whitespace, the shop name, slogan, address, then the subtitle + date.
+ * `subtitle` is trusted (literal strings / computed counts, not user input).
+ */
+function receiptHeaderHtml(subtitle: string, dateStr: string): string {
+  return `<div style="height:28px;"></div>
+    <div style="text-align:center;border-bottom:1px dashed #aaa;padding-bottom:12px;margin-bottom:12px;">
+      <div style="font-size:21px;font-weight:bold;letter-spacing:0.02em;">${SHOP_NAME}</div>
+      <div style="font-size:12px;color:#444;font-style:italic;margin-top:3px;">${SHOP_SLOGAN}</div>
+      <div style="font-size:11px;color:#666;margin-top:5px;">${SHOP_ADDRESS}</div>
+      <div style="font-size:12px;color:#666;margin-top:8px;">${subtitle}</div>
+      <div style="font-size:11px;color:#666;">${dateStr}</div>
+    </div>`;
 }
 
 /**
@@ -92,30 +111,26 @@ export function buildSaleReceiptHtml(sale: SaleRecord): string {
 </style>
 </head>
 <body style="font-family:'Courier New',ui-monospace,monospace;color:#111;margin:0;padding:12px;">
-  <div style="max-width:300px;margin:0 auto;">
-    <div style="text-align:center;border-bottom:1px dashed #aaa;padding-bottom:10px;margin-bottom:10px;">
-      <div style="font-size:17px;font-weight:bold;">${SHOP_NAME}</div>
-      <div style="font-size:11px;color:#666;margin-top:2px;">Sales Receipt</div>
-      <div style="font-size:11px;color:#666;">${dateStr}</div>
-    </div>
+  <div style="max-width:320px;margin:0 auto;">
+    ${receiptHeaderHtml('Sales Receipt', dateStr)}
 
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <table style="width:100%;border-collapse:collapse;font-size:14px;">
       ${itemRows}
     </table>
 
-    <table style="width:100%;border-collapse:collapse;font-size:13px;border-top:1px dashed #aaa;margin-top:10px;padding-top:6px;">
+    <table style="width:100%;border-collapse:collapse;font-size:14px;border-top:1px dashed #aaa;margin-top:10px;padding-top:6px;">
       <tr><td style="padding:6px 0 2px;color:#555;">Subtotal</td><td style="padding:6px 0 2px;text-align:right;">${money(sale.subtotalUSD)}</td></tr>
       ${taxRow}
       ${cardFeeRow}
       <tr style="border-top:1px solid #111;">
-        <td style="padding:6px 0 0;font-weight:bold;font-size:15px;">Total</td>
-        <td style="padding:6px 0 0;text-align:right;font-weight:bold;font-size:15px;">${money(grandTotalUSD)}</td>
+        <td style="padding:6px 0 0;font-weight:bold;font-size:16px;">Total</td>
+        <td style="padding:6px 0 0;text-align:right;font-weight:bold;font-size:16px;">${money(grandTotalUSD)}</td>
       </tr>
       <tr><td style="padding:6px 0 2px;color:#555;">Paid</td><td style="padding:6px 0 2px;text-align:right;">${paymentLabel}</td></tr>
       ${cashRows}
     </table>
 
-    <div style="text-align:center;border-top:1px dashed #aaa;margin-top:12px;padding-top:10px;font-size:11px;color:#666;">
+    <div style="text-align:center;border-top:1px dashed #aaa;margin-top:12px;padding-top:10px;font-size:12px;color:#666;">
       Thank you for your business!
     </div>
   </div>
@@ -233,12 +248,8 @@ export function buildCombinedReceiptHtml(data: CombinedReceiptData): string {
 </style>
 </head>
 <body style="font-family:'Courier New',ui-monospace,monospace;color:#111;margin:0;padding:12px;">
-  <div style="max-width:300px;margin:0 auto;">
-    <div style="text-align:center;border-bottom:1px dashed #aaa;padding-bottom:10px;margin-bottom:10px;">
-      <div style="font-size:17px;font-weight:bold;">${SHOP_NAME}</div>
-      <div style="font-size:11px;color:#666;margin-top:2px;">Sales Receipt</div>
-      <div style="font-size:11px;color:#666;">${dateStr}</div>
-    </div>
+  <div style="max-width:320px;margin:0 auto;">
+    ${receiptHeaderHtml('Sales Receipt', dateStr)}
 
     ${goodsBlock}
     ${shippingBlock}
@@ -398,11 +409,7 @@ export function buildDropoffReceiptHtml(input: DropoffRecord | DropoffRecord[]):
 </head>
 <body style="font-family:'Courier New',ui-monospace,monospace;color:#111;margin:0;padding:12px;">
   <div style="max-width:320px;margin:0 auto;">
-    <div style="text-align:center;border-bottom:1px dashed #aaa;padding-bottom:10px;margin-bottom:10px;">
-      <div style="font-size:17px;font-weight:bold;">${SHOP_NAME}</div>
-      <div style="font-size:11px;color:#666;margin-top:2px;">${subtitle}</div>
-      <div style="font-size:11px;color:#666;">${dateStr}</div>
-    </div>
+    ${receiptHeaderHtml(subtitle, dateStr)}
 
     ${first.customerName ? `<div style="font-size:12px;margin-bottom:8px;">Customer: ${esc(first.customerName)}</div>` : ''}
 

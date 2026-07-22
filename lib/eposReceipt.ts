@@ -16,6 +16,7 @@ import type { SaleRecord } from '@/app/admin/types/register';
 import type { DropoffRecord } from '@/app/admin/types/dropoff';
 import type { CombinedReceiptData } from '@/lib/receipt';
 import { DROPOFF_CARRIER_LABELS, trackingUrl } from '@/lib/dropoff';
+import { SITE } from '@/lib/siteConfig';
 
 /**
  * Minimal typing of the Epson ePOS SDK printer device object. The SDK is loaded
@@ -43,6 +44,9 @@ export interface EposPrinter {
 
 /** Printed on every receipt. Plain text (not HTML-escaped like the email copy). */
 const SHOP_NAME = 'Storm Lake Pack & Ship';
+const SHOP_SLOGAN = 'Shipping made easy';
+// Commas (not a middot) so it renders on any ESC/POS code page.
+const SHOP_ADDRESS = `${SITE.address.street}, ${SITE.address.city}, ${SITE.address.region} ${SITE.address.postalCode}`;
 
 /**
  * Characters per line. 80mm Font A is up to 48 columns; we use 42 so lines never
@@ -112,11 +116,17 @@ function twoCol(p: EposPrinter, left: string, right: string): void {
   }
 }
 
-function header(p: EposPrinter, subtitle: string, iso: string): void {
+function header(p: EposPrinter, subtitle: string, iso: string, brand = false): void {
   p.addTextAlign(p.ALIGN_CENTER);
+  if (brand) p.addTextSize(1, 2); // double-height shop name (width unchanged so it won't wrap)
   bold(p, true);
   p.addText(SHOP_NAME + '\n');
   bold(p, false);
+  if (brand) p.addTextSize(1, 1);
+  if (brand) {
+    p.addText(SHOP_SLOGAN + '\n');
+    p.addText(SHOP_ADDRESS + '\n');
+  }
   p.addText(subtitle + '\n');
   p.addText(fmtDate(iso) + '\n');
   divider(p);
@@ -151,7 +161,8 @@ function taxLabel(rate: number): string {
 
 /** Register / POS sales receipt (mirrors buildSaleReceiptHtml). */
 export function renderSale(p: EposPrinter, sale: SaleRecord, opts: RenderOptions = {}): void {
-  header(p, 'Sales Receipt', sale.timestamp);
+  p.addFeedLine(1); // a little white space at the top
+  header(p, 'Sales Receipt', sale.timestamp, true);
 
   p.addTextAlign(p.ALIGN_LEFT);
   for (const it of sale.items) {
@@ -186,7 +197,8 @@ export function renderSale(p: EposPrinter, sale: SaleRecord, opts: RenderOptions
  * serves shipping-only card/cash receipts, where `data.sale` is null.
  */
 export function renderCombined(p: EposPrinter, data: CombinedReceiptData, opts: RenderOptions = {}): void {
-  header(p, 'Sales Receipt', data.timestamp);
+  p.addFeedLine(1); // a little white space at the top
+  header(p, 'Sales Receipt', data.timestamp, true);
 
   const sale = data.sale;
   if (sale && sale.items.length > 0) {
@@ -238,7 +250,8 @@ export function renderDropoff(p: EposPrinter, input: DropoffRecord | DropoffReco
   const count = records.length;
   const subtitle = count > 1 ? `Drop-off Receipt - ${count} packages` : 'Drop-off Receipt';
 
-  header(p, subtitle, first.timestamp);
+  p.addFeedLine(1); // a little white space at the top
+  header(p, subtitle, first.timestamp, true);
 
   p.addTextAlign(p.ALIGN_LEFT);
   if (first.customerName) p.addText(`Customer: ${clean(first.customerName)}\n`);
