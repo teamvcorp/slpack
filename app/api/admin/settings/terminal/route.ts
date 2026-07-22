@@ -86,21 +86,29 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const enabled = Boolean(body.enabled);
-
   await client.connect();
   const existing = await col().findOne({ _id: ID });
-  if (enabled && !existing?.readerId) {
-    return NextResponse.json({ error: 'Pair a reader before enabling.' }, { status: 400 });
+
+  // The reader is selected from the shared account (terminal.readers.list), not
+  // registered here. `readerId` is optional: present when changing the selection,
+  // omitted when only toggling `enabled`.
+  const hasReaderField = typeof body.readerId === 'string';
+  const readerId = hasReaderField ? String(body.readerId).trim() : existing?.readerId ?? '';
+  const label = typeof body.label === 'string' ? String(body.label).trim() : existing?.label ?? '';
+  const enabled = Boolean(body.enabled);
+
+  if (enabled && !readerId) {
+    return NextResponse.json({ error: 'Select a reader before enabling.' }, { status: 400 });
   }
 
-  await col().updateOne({ _id: ID }, { $set: { enabled } }, { upsert: true });
-  return NextResponse.json({
-    readerId: existing?.readerId ?? '',
-    locationId: existing?.locationId ?? '',
-    label: existing?.label ?? '',
-    enabled,
-  });
+  const set: Record<string, unknown> = { enabled };
+  if (hasReaderField) {
+    set.readerId = readerId;
+    set.label = label;
+  }
+
+  await col().updateOne({ _id: ID }, { $set: set }, { upsert: true });
+  return NextResponse.json({ readerId, label, enabled });
 }
 
 /**

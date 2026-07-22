@@ -1,25 +1,28 @@
-# Card Reader Setup — Stripe Reader S700/S710
+# Card Reader Setup — Stripe Reader S700/S710 (shared)
 
 Take in-person card payments at the counter. The reader connects to the internet and talks
 **directly to Stripe** — our app drives it from the server, so there's nothing to install and no
 cables to the PC. It works from any browser/OS (Kali, Windows, etc.).
 
-## Step 1 — Power on and connect to the internet
-1. Hold the power button (right side) until the screen turns on.
-2. Open **Settings** on the reader (admin **PIN: 07139**).
-3. Connect via **Ethernet** (plug into your LAN — most reliable) or **WiFi**. The reader gets an IP
-   automatically; it does **not** need to be on the same network as the PC.
+**Shared reader:** this S710 is used by more than one of our sites on the **same Stripe account**.
+A Terminal reader is an **account-level** device — you register it **once in the Stripe Dashboard**,
+and every site then just *selects* it. Do **not** register/pair it separately per app (that would
+create duplicates). Each site tags its charges so shared transactions stay distinguishable in Stripe.
 
-## Step 2 — Generate a pairing code
-1. On the reader: **Settings → Generate pairing code** (wording may vary slightly).
-2. A short code appears. It expires in ~10 minutes and is single-use.
+## Step 1 — Register the reader ONCE (Stripe Dashboard)
+Do this a single time for the shared reader (skip if it's already registered):
+1. On the reader: power on, open **Settings** (admin **PIN: 07139**), connect via **Ethernet**
+   (preferred) or **WiFi**, and **Generate pairing code**.
+2. In the **Stripe Dashboard → Terminal → Readers → Register reader**, enter that code, give it a
+   label (e.g. "Front counter") and a Location. Done — all sites can now use it.
 
-## Step 3 — Pair it in the app
+## Step 2 — Select it in this app
 1. In the admin app go to **Settings → Card reader**.
-2. Type the pairing code, give it a label (e.g. "Front counter"), and click **Pair reader**.
-3. The reader registers and its status shows **online**. Keep the **"Offer Tap / insert on reader
-   at checkout"** checkbox enabled.
-   - If pairing fails, generate a fresh code (the old one expires) and try again.
+2. Pick the reader from the **dropdown** (it lists every reader on the account; click **Refresh
+   list** if it's not there yet). Keep the **"Offer Tap / insert on reader at checkout"** checkbox
+   enabled.
+3. **Run diagnostics** to confirm it shows **online** with firmware/serial. Use **Clear selection**
+   to unselect (it never deletes the shared reader).
 
 ## Step 4 — Take a payment
 At checkout (Register, Combined, or Shipping), click **💳 Tap on reader**. The reader prompts the

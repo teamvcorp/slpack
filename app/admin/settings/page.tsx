@@ -203,20 +203,44 @@ interface ReaderDiagnostics {
   lastAction: { type: string; status: string; failureCode: string | null; failureMessage: string | null } | null;
 }
 
+interface AccountReader {
+  id: string;
+  label: string;
+  status: string;
+  deviceType: string | null;
+  location: string | null;
+  serialNumber: string | null;
+}
+
 function CardReaderCard() {
   const [loading, setLoading] = useState(true);
   const [readerId, setReaderId] = useState('');
   const [label, setLabel] = useState('');
   const [readerStatus, setReaderStatus] = useState<string>('');
   const [enabled, setEnabled] = useState(false);
-  const [code, setCode] = useState('');
-  const [pairLabel, setPairLabel] = useState('Counter reader');
+  const [readers, setReaders] = useState<AccountReader[]>([]);
+  const [readersError, setReadersError] = useState<string | null>(null);
+  const [readersLoading, setReadersLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pairing, setPairing] = useState(false);
   const [diagLoading, setDiagLoading] = useState(false);
   const [diag, setDiag] = useState<ReaderDiagnostics | null>(null);
   const [readerError, setReaderError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  async function loadReaders() {
+    setReadersLoading(true);
+    setReadersError(null);
+    try {
+      const res = await fetch('/api/admin/terminal/readers', { cache: 'no-store' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error ?? `Server error ${res.status}`);
+      setReaders(Array.isArray(d.readers) ? d.readers : []);
+    } catch (err) {
+      setReadersError(err instanceof Error ? err.message : 'Could not list readers.');
+    } finally {
+      setReadersLoading(false);
+    }
+  }
 
   async function loadStatus() {
     setDiagLoading(true);
@@ -253,9 +277,7 @@ function CardReaderCard() {
   }
 
   async function handleUnpair() {
-    if (!window.confirm('Clear the paired reader? You will need to pair it again to take card payments.')) {
-      return;
-    }
+    if (!window.confirm('Clear the selected reader? You can pick it again anytime.')) return;
     setMessage(null);
     try {
       const res = await fetch('/api/admin/settings/terminal', { method: 'DELETE' });
@@ -268,14 +290,41 @@ function CardReaderCard() {
       setDiag(null);
       setReaderError(null);
       refreshTerminalSettings();
-      setMessage({ kind: 'ok', text: 'Reader unpaired. Pair a fresh pairing code below.' });
+      setMessage({ kind: 'ok', text: 'Selection cleared. Pick a reader below.' });
     } catch (err) {
-      setMessage({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to unpair.' });
+      setMessage({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to clear selection.' });
+    }
+  }
+
+  // Select (not register) a reader from the shared Stripe account.
+  async function handleSelect(id: string, lbl: string) {
+    if (!id) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/settings/terminal', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ readerId: id, label: lbl, enabled: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`);
+      setReaderId(data.readerId);
+      setLabel(data.label ?? lbl);
+      setEnabled(Boolean(data.enabled));
+      refreshTerminalSettings();
+      setMessage({ kind: 'ok', text: 'Reader selected and enabled.' });
+      loadStatus();
+    } catch (err) {
+      setMessage({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to select reader.' });
+    } finally {
+      setSaving(false);
     }
   }
 
   useEffect(() => {
     loadStatus();
+    loadReaders();
   }, []);
 
   async function handleToggle(next: boolean) {
@@ -298,38 +347,6 @@ function CardReaderCard() {
       setMessage({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to save.' });
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handlePair() {
-    if (!code.trim()) {
-      setMessage({ kind: 'err', text: 'Enter the pairing code shown on the reader.' });
-      return;
-    }
-    setPairing(true);
-    setMessage(null);
-    try {
-      const res = await fetch('/api/admin/terminal/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ registrationCode: code.trim(), label: pairLabel.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`);
-      setReaderId(data.readerId);
-      setLabel(data.label ?? pairLabel);
-      setReaderStatus(data.readerStatus ?? '');
-      setEnabled(Boolean(data.enabled));
-      setCode('');
-      refreshTerminalSettings();
-      setMessage({ kind: 'ok', text: 'Reader paired and enabled.' });
-    } catch (err) {
-      setMessage({
-        kind: 'err',
-        text: `${err instanceof Error ? err.message : 'Pairing failed.'} — the code expires after ~10 minutes; generate a fresh one on the reader and confirm it's in the same mode (test/live) as your Stripe keys.`,
-      });
-    } finally {
-      setPairing(false);
     }
   }
 
@@ -388,8 +405,8 @@ function CardReaderCard() {
                   <p className="font-semibold">Couldn&apos;t reach this reader</p>
                   <p className="mt-0.5 wrap-break-word">{readerError}</p>
                   <p className="mt-1 text-red/80">
-                    This usually means the stored reader is stale (it was re-paired, or is in a
-                    different test/live mode than your Stripe keys). Pair the reader again below.
+                    This usually means the selected reader was removed or is in a different
+                    test/live mode than your Stripe keys. Pick it again below.
                   </p>
                 </div>
               )}
@@ -408,7 +425,7 @@ function CardReaderCard() {
                   onClick={handleUnpair}
                   className="text-xs font-medium text-red hover:underline"
                 >
-                  Unpair reader
+                  Clear selection
                 </button>
               </div>
 
@@ -420,7 +437,7 @@ function CardReaderCard() {
               </p>
             </div>
           ) : (
-            <p className="text-sm text-navy/50">No reader paired yet.</p>
+            <p className="text-sm text-navy/50">No reader selected yet.</p>
           )}
 
           {readerId && (
@@ -436,35 +453,52 @@ function CardReaderCard() {
             </label>
           )}
 
-          {/* Pair (or re-pair) a reader */}
+          {/* Select the shared reader (registered once in the Stripe Dashboard) */}
           <div className="rounded-xl border border-navy/10 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-navy/50">
-              {readerId ? 'Pair a different reader' : 'Pair a reader'}
-            </p>
-            <div className="mt-2 space-y-2">
-              <input
-                type="text"
-                placeholder="Pairing code (from the reader screen)"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2 font-mono text-sm text-navy focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue"
-              />
-              <input
-                type="text"
-                placeholder="Label (e.g. Front counter)"
-                value={pairLabel}
-                onChange={(e) => setPairLabel(e.target.value)}
-                className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm text-navy focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue"
-              />
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-navy/50">
+                {readerId ? 'Change reader' : 'Select a reader'}
+              </p>
               <button
                 type="button"
-                onClick={handlePair}
-                disabled={pairing}
-                className="rounded-lg bg-blue px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy disabled:opacity-50"
+                onClick={loadReaders}
+                disabled={readersLoading}
+                className="text-xs font-medium text-blue hover:underline disabled:opacity-50"
               >
-                {pairing ? 'Pairing…' : 'Pair reader'}
+                {readersLoading ? 'Loading…' : 'Refresh list'}
               </button>
             </div>
+
+            <select
+              value={readerId}
+              disabled={saving || readersLoading}
+              onChange={(e) => {
+                const r = readers.find((x) => x.id === e.target.value);
+                if (r) handleSelect(r.id, r.label);
+              }}
+              className="mt-2 w-full rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm text-navy focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue"
+            >
+              <option value="" disabled>
+                {readers.length ? 'Choose a reader…' : 'No readers found'}
+              </option>
+              {readers.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {(r.label || '(no label)') + ' · ' + r.status + (r.deviceType ? ` · ${r.deviceType}` : '')}
+                </option>
+              ))}
+            </select>
+
+            {readersError && <p className="mt-2 text-[11px] text-red">{readersError}</p>}
+            {!readersError && readers.length === 0 && !readersLoading && (
+              <p className="mt-2 text-[11px] text-navy/50">
+                No readers on this Stripe account. Register the shared reader once in the Stripe
+                Dashboard (Terminal → Readers), then Refresh list.
+              </p>
+            )}
+            <p className="mt-2 text-[11px] text-navy/40">
+              The reader is shared across sites, so it&apos;s registered once in the Stripe Dashboard —
+              here you just pick which one this counter uses.
+            </p>
           </div>
 
           {message && (
@@ -480,11 +514,11 @@ function CardReaderCard() {
       )}
 
       <div className="mt-6 rounded-xl bg-navy/5 px-4 py-3 text-[11px] leading-relaxed text-navy/50">
-        <p className="font-semibold text-navy/60">One-time setup</p>
+        <p className="font-semibold text-navy/60">Setup (shared reader)</p>
         <ol className="mt-1 list-decimal space-y-0.5 pl-4">
-          <li>Connect the reader to the internet (Settings → WiFi/Ethernet; admin PIN 07139).</li>
-          <li>On the reader: Settings → <span className="font-mono">Generate pairing code</span>.</li>
-          <li>Enter that code above and click Pair reader, then keep the checkbox enabled.</li>
+          <li>Register the reader <span className="font-semibold">once</span> in the Stripe Dashboard (Terminal → Readers) — shared across all sites.</li>
+          <li>Connect it to the internet (reader Settings → WiFi/Ethernet; admin PIN 07139).</li>
+          <li>Here, pick it from the list above and keep the checkbox enabled. Every charge is tagged with this site so shared transactions stay distinguishable in Stripe.</li>
         </ol>
       </div>
     </div>

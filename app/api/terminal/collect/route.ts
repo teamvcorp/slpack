@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeEmail } from '@/lib/email';
 import { priceCart } from '@/lib/registerPricing';
 import client from '@/lib/mongodb';
+import { SITE_URL } from '@/lib/siteConfig';
 import type { RegisterLineItem } from '@/app/admin/types/register';
+
+// The S710 is shared across sites on one Stripe account — tag every charge so
+// shared transactions stay attributable to THIS site in the Stripe Dashboard.
+const SITE_TAG = (() => {
+  try {
+    return new URL(SITE_URL).hostname.replace(/^www\./, '');
+  } catch {
+    return 'slpack';
+  }
+})();
 
 /**
  * Start an in-person card payment on the Stripe Terminal reader (server-driven).
@@ -89,7 +100,7 @@ export async function POST(req: NextRequest) {
       capture_method: 'automatic',
       receipt_email: customerEmail,
       description,
-      metadata: { source: 'terminal', totalUSD: amountUSD.toFixed(2) },
+      metadata: { source: 'terminal', site: SITE_TAG, totalUSD: amountUSD.toFixed(2) },
     });
     paymentIntentId = pi.id;
 
@@ -105,13 +116,22 @@ export async function POST(req: NextRequest) {
         /* best effort */
       }
     }
-    // A stale reader id (reader re-paired, or wrong test/live mode) surfaces as a
-    // missing-resource error — give the operator the actual next step.
     const rawMessage = err instanceof Error ? err.message : '';
     const code = err && typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
+
+    // Shared reader already mid-sale on another site — recoverable, ask to retry.
+    const busy = code === 'terminal_reader_busy' || /busy|in progress|currently processing/i.test(rawMessage);
+    if (busy) {
+      return NextResponse.json(
+        { error: 'The card reader is busy with another sale. Wait a moment and try again.', busy: true },
+        { status: 409 }
+      );
+    }
+
+    // Selected reader id no longer resolves (removed, or wrong test/live mode).
     const readerMissing = code === 'resource_missing' || /no such terminal reader|no such reader/i.test(rawMessage);
     const message = readerMissing
-      ? 'Card reader not found — re-pair it in Admin → Settings (Card reader → Pair a reader).'
+      ? 'Card reader not found — pick it again in Admin → Settings (Card reader).'
       : rawMessage || 'Could not start the reader payment.';
     return NextResponse.json({ error: message }, { status: 502 });
   }
