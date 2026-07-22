@@ -102,3 +102,18 @@ export async function PUT(req: NextRequest) {
     enabled,
   });
 }
+
+/**
+ * Clear the stored pairing (reader id + label), disable, and keep the Location for
+ * easy re-pairing. Use this to recover from a stale/mismatched reader. The physical
+ * reader stays registered in Stripe; generate a fresh pairing code to re-link it.
+ */
+export async function DELETE() {
+  await client.connect();
+  await col().updateOne(
+    { _id: ID },
+    { $set: { readerId: '', label: '', enabled: false } },
+    { upsert: true }
+  );
+  return NextResponse.json({ readerId: '', label: '', enabled: false });
+}

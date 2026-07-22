@@ -222,30 +222,55 @@ function CardReaderCard() {
     setDiagLoading(true);
     try {
       const res = await fetch('/api/admin/settings/terminal?status=1', { cache: 'no-store' });
-      if (res.ok) {
-        const d = await res.json();
-        setReaderId(d.readerId ?? '');
-        setLabel(d.label ?? '');
-        setEnabled(Boolean(d.enabled));
-        setReaderStatus(d.readerStatus ?? '');
-        // Surface a reader lookup failure (stale id after re-pair, wrong test/live mode, etc.).
-        setReaderError(
-          d.readerError ?? (d.readerStatus === 'deleted' ? 'This reader was deleted in Stripe.' : null)
-        );
-        setDiag({
-          deviceType: d.deviceType ?? null,
-          serialNumber: d.serialNumber ?? null,
-          firmware: d.firmware ?? null,
-          ipAddress: d.ipAddress ?? null,
-          livemode: typeof d.livemode === 'boolean' ? d.livemode : null,
-          lastAction: d.lastAction ?? null,
-        });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Never leave the panel silently blank — show why the lookup failed.
+        setReaderError(d.error ?? `Diagnostics request failed (status ${res.status}).`);
+        return;
       }
-    } catch {
-      /* leave defaults */
+      setReaderId(d.readerId ?? '');
+      setLabel(d.label ?? '');
+      setEnabled(Boolean(d.enabled));
+      setReaderStatus(d.readerStatus ?? '');
+      // Surface a reader lookup failure (stale id after re-pair, wrong test/live mode, etc.).
+      setReaderError(
+        d.readerError ?? (d.readerStatus === 'deleted' ? 'This reader was deleted in Stripe.' : null)
+      );
+      setDiag({
+        deviceType: d.deviceType ?? null,
+        serialNumber: d.serialNumber ?? null,
+        firmware: d.firmware ?? null,
+        ipAddress: d.ipAddress ?? null,
+        livemode: typeof d.livemode === 'boolean' ? d.livemode : null,
+        lastAction: d.lastAction ?? null,
+      });
+    } catch (err) {
+      setReaderError(err instanceof Error ? err.message : 'Could not reach the diagnostics endpoint.');
     } finally {
       setLoading(false);
       setDiagLoading(false);
+    }
+  }
+
+  async function handleUnpair() {
+    if (!window.confirm('Clear the paired reader? You will need to pair it again to take card payments.')) {
+      return;
+    }
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/settings/terminal', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`);
+      setReaderId('');
+      setLabel('');
+      setEnabled(false);
+      setReaderStatus('');
+      setDiag(null);
+      setReaderError(null);
+      refreshTerminalSettings();
+      setMessage({ kind: 'ok', text: 'Reader unpaired. Pair a fresh pairing code below.' });
+    } catch (err) {
+      setMessage({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to unpair.' });
     }
   }
 
@@ -369,14 +394,23 @@ function CardReaderCard() {
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={loadStatus}
-                disabled={diagLoading}
-                className="mt-3 text-xs font-medium text-blue hover:underline disabled:opacity-50"
-              >
-                {diagLoading ? 'Running…' : 'Run diagnostics'}
-              </button>
+              <div className="mt-3 flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={loadStatus}
+                  disabled={diagLoading}
+                  className="text-xs font-medium text-blue hover:underline disabled:opacity-50"
+                >
+                  {diagLoading ? 'Running…' : 'Run diagnostics'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUnpair}
+                  className="text-xs font-medium text-red hover:underline"
+                >
+                  Unpair reader
+                </button>
+              </div>
 
               <p className="mt-2 text-[11px] leading-relaxed text-navy/40">
                 Chip/tap not working but swipe does? Confirm the Firmware above matches the current
