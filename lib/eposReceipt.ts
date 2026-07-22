@@ -31,6 +31,7 @@ export interface EposPrinter {
   addFeedLine(line: number): void;
   addCut(type: number): void;
   addPulse(drawer: number, time: number): void;
+  addSymbol(data: string, type: number, level: number, width: number, height: number, size: number): void;
   send(): void;
   onreceive: ((res: { success: boolean; code?: string }) => void) | undefined;
   readonly ALIGN_LEFT: number;
@@ -40,6 +41,8 @@ export interface EposPrinter {
   readonly DRAWER_1: number;
   readonly PULSE_100: number;
   readonly COLOR_1: number;
+  readonly SYMBOL_QRCODE_MODEL_2: number;
+  readonly LEVEL_M: number;
 }
 
 /** Printed on every receipt. Plain text (not HTML-escaped like the email copy). */
@@ -47,6 +50,10 @@ const SHOP_NAME = 'Storm Lake Pack & Ship';
 const SHOP_SLOGAN = 'Shipping made easy';
 // Commas (not a middot) so it renders on any ESC/POS code page.
 const SHOP_ADDRESS = `${SITE.address.street}, ${SITE.address.city}, ${SITE.address.region} ${SITE.address.postalCode}`;
+
+// Promo QR printed at the bottom of every customer receipt (paper only).
+const PROMO_QR_URL = 'https://taekwondostormlake.com/promo';
+const PROMO_QR_CAPTION = 'Support our current project';
 
 /**
  * Characters per line. 80mm Font A is up to 48 columns; we use 42 so lines never
@@ -143,6 +150,17 @@ function footer(p: EposPrinter): void {
   p.addText('Thank you for your business!\n');
 }
 
+/** Promo QR at the very bottom of the receipt (native QR, no image needed). */
+function promoQr(p: EposPrinter): void {
+  p.addFeedLine(1);
+  divider(p);
+  p.addTextAlign(p.ALIGN_CENTER);
+  p.addText(PROMO_QR_CAPTION + '\n');
+  // width 5 = module (dot) size; LEVEL_M = medium error correction; height/size unused for QR.
+  p.addSymbol(PROMO_QR_URL, p.SYMBOL_QRCODE_MODEL_2, p.LEVEL_M, 5, 5, 0);
+  p.addText(PROMO_QR_URL + '\n'); // scan-free fallback
+}
+
 /** Feed, optionally open the cash drawer, then cut. Always the last call. */
 function finish(p: EposPrinter, openDrawer: boolean): void {
   p.addTextAlign(p.ALIGN_LEFT);
@@ -189,6 +207,7 @@ export function renderSale(p: EposPrinter, sale: SaleRecord, opts: RenderOptions
   }
 
   footer(p);
+  promoQr(p);
   finish(p, !!opts.openDrawer && sale.paymentMethod === 'cash');
 }
 
@@ -240,6 +259,7 @@ export function renderCombined(p: EposPrinter, data: CombinedReceiptData, opts: 
   }
 
   footer(p);
+  promoQr(p);
   finish(p, !!opts.openDrawer && data.paymentMethod === 'cash');
 }
 
@@ -275,6 +295,7 @@ export function renderDropoff(p: EposPrinter, input: DropoffRecord | DropoffReco
       ? `These ${count} packages were accepted for drop-off.\nThank you!\n`
       : 'This package was accepted for drop-off.\nThank you!\n'
   );
+  promoQr(p);
   finish(p, false);
 }
 
@@ -289,5 +310,6 @@ export function renderTest(p: EposPrinter): void {
   p.addTextAlign(p.ALIGN_LEFT);
   p.addText('If you can read this, the receipt\nprinter is connected and working.\n');
   footer(p);
+  promoQr(p);
   finish(p, false);
 }
