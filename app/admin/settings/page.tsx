@@ -215,6 +215,7 @@ function CardReaderCard() {
   const [pairing, setPairing] = useState(false);
   const [diagLoading, setDiagLoading] = useState(false);
   const [diag, setDiag] = useState<ReaderDiagnostics | null>(null);
+  const [readerError, setReaderError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   async function loadStatus() {
@@ -227,6 +228,10 @@ function CardReaderCard() {
         setLabel(d.label ?? '');
         setEnabled(Boolean(d.enabled));
         setReaderStatus(d.readerStatus ?? '');
+        // Surface a reader lookup failure (stale id after re-pair, wrong test/live mode, etc.).
+        setReaderError(
+          d.readerError ?? (d.readerStatus === 'deleted' ? 'This reader was deleted in Stripe.' : null)
+        );
         setDiag({
           deviceType: d.deviceType ?? null,
           serialNumber: d.serialNumber ?? null,
@@ -351,6 +356,17 @@ function CardReaderCard() {
                     </>
                   )}
                 </dl>
+              )}
+
+              {readerError && (
+                <div className="mt-3 rounded-lg border border-red/30 bg-red/5 px-3 py-2 text-[12px] text-red">
+                  <p className="font-semibold">Couldn&apos;t reach this reader</p>
+                  <p className="mt-0.5 wrap-break-word">{readerError}</p>
+                  <p className="mt-1 text-red/80">
+                    This usually means the stored reader is stale (it was re-paired, or is in a
+                    different test/live mode than your Stripe keys). Pair the reader again below.
+                  </p>
+                </div>
               )}
 
               <button

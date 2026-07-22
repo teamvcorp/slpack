@@ -17,6 +17,7 @@ import type { DropoffRecord } from '@/app/admin/types/dropoff';
 import type { CombinedReceiptData } from '@/lib/receipt';
 import { DROPOFF_CARRIER_LABELS, trackingUrl } from '@/lib/dropoff';
 import { SITE } from '@/lib/siteConfig';
+import QRCode from 'qrcode';
 
 /**
  * Minimal typing of the Epson ePOS SDK printer device object. The SDK is loaded
@@ -31,7 +32,15 @@ export interface EposPrinter {
   addFeedLine(line: number): void;
   addCut(type: number): void;
   addPulse(drawer: number, time: number): void;
-  addSymbol(data: string, type: number, level: number, width: number, height: number, size: number): void;
+  addImage(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    color?: number,
+    mode?: number
+  ): void;
   send(): void;
   onreceive: ((res: { success: boolean; code?: string }) => void) | undefined;
   readonly ALIGN_LEFT: number;
@@ -41,8 +50,7 @@ export interface EposPrinter {
   readonly DRAWER_1: number;
   readonly PULSE_100: number;
   readonly COLOR_1: number;
-  readonly SYMBOL_QRCODE_MODEL_2: number;
-  readonly LEVEL_M: number;
+  readonly MODE_MONO: number;
 }
 
 /** Printed on every receipt. Plain text (not HTML-escaped like the email copy). */
@@ -54,6 +62,27 @@ const SHOP_ADDRESS = `${SITE.address.street}, ${SITE.address.city}, ${SITE.addre
 // Promo QR printed at the bottom of every customer receipt (paper only).
 const PROMO_QR_URL = 'https://taekwondostormlake.com/promo';
 const PROMO_QR_CAPTION = 'Support our current project';
+
+// The QR is printed as a raster IMAGE (addImage), not a native ePOS <symbol> —
+// the TM-T20IV's QR-symbol support depends on firmware and silently no-ops on
+// some units, whereas a bitmap prints on any thermal printer. The URL is static,
+// so the canvas is generated once and reused.
+let promoQrCanvas: HTMLCanvasElement | null = null;
+
+/**
+ * Generate (once) the promo QR bitmap. Call and await BEFORE printing so the
+ * synchronous renderers can add it. Safe to call repeatedly; never throws.
+ */
+export async function ensurePromoQr(): Promise<void> {
+  if (promoQrCanvas || typeof document === 'undefined') return;
+  try {
+    const canvas = document.createElement('canvas');
+    await QRCode.toCanvas(canvas, PROMO_QR_URL, { margin: 1, width: 240 });
+    promoQrCanvas = canvas;
+  } catch {
+    promoQrCanvas = null; // fall back to caption + URL text
+  }
+}
 
 /**
  * Characters per line. 80mm Font A is up to 48 columns; we use 42 so lines never
@@ -150,15 +179,21 @@ function footer(p: EposPrinter): void {
   p.addText('Thank you for your business!\n');
 }
 
-/** Promo QR at the very bottom of the receipt (native QR, no image needed). */
+/**
+ * Promo QR at the very bottom of the receipt, printed as a raster image so it
+ * works regardless of the printer's QR-symbol firmware support. Falls back to
+ * just the caption + URL if the bitmap wasn't generated (see ensurePromoQr).
+ */
 function promoQr(p: EposPrinter): void {
   p.addFeedLine(1);
   divider(p);
   p.addTextAlign(p.ALIGN_CENTER);
   p.addText(PROMO_QR_CAPTION + '\n');
-  // width 5 = module (dot) size; LEVEL_M = medium error correction; height/size unused for QR.
-  p.addSymbol(PROMO_QR_URL, p.SYMBOL_QRCODE_MODEL_2, p.LEVEL_M, 5, 5, 0);
-  p.addText(PROMO_QR_URL + '\n'); // scan-free fallback
+  const ctx = promoQrCanvas?.getContext('2d') ?? null;
+  if (ctx && promoQrCanvas) {
+    p.addImage(ctx, 0, 0, promoQrCanvas.width, promoQrCanvas.height, p.COLOR_1, p.MODE_MONO);
+  }
+  p.addText(PROMO_QR_URL + '\n'); // scan-free fallback (and shown if the QR bitmap is unavailable)
 }
 
 /** Feed, optionally open the cash drawer, then cut. Always the last call. */

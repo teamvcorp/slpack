@@ -105,7 +105,14 @@ export async function POST(req: NextRequest) {
         /* best effort */
       }
     }
-    const message = err instanceof Error ? err.message : 'Could not start the reader payment.';
+    // A stale reader id (reader re-paired, or wrong test/live mode) surfaces as a
+    // missing-resource error — give the operator the actual next step.
+    const rawMessage = err instanceof Error ? err.message : '';
+    const code = err && typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
+    const readerMissing = code === 'resource_missing' || /no such terminal reader|no such reader/i.test(rawMessage);
+    const message = readerMissing
+      ? 'Card reader not found — re-pair it in Admin → Settings (Card reader → Pair a reader).'
+      : rawMessage || 'Could not start the reader payment.';
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

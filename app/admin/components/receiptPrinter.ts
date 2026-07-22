@@ -14,7 +14,7 @@
  */
 import { printHtml } from './printHtml';
 import type { EposPrinter } from '@/lib/eposReceipt';
-import { renderTest } from '@/lib/eposReceipt';
+import { renderTest, ensurePromoQr } from '@/lib/eposReceipt';
 
 interface PrinterSettings {
   ip: string;
@@ -151,6 +151,7 @@ export async function printReceipt(
   }
 
   try {
+    await ensurePromoQr(); // generate the promo QR bitmap so the sync renderer can add it
     const printer = await connect(settings.ip, settings.port);
     await runJob(printer, render);
   } catch (err) {
@@ -168,6 +169,7 @@ export async function printReceipt(
  */
 export async function testPrint(ip: string, port: number): Promise<void> {
   connection = null; // always use the address being tested
+  await ensurePromoQr();
   const printer = await connect(ip, port);
   await runJob(printer, renderTest);
 }
