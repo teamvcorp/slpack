@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ trackingNumber, labelBase64, labelMimeType, labelError });
+    return NextResponse.json({ id: entry.id, trackingNumber, labelBase64, labelMimeType, labelError });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return await logAndRespond({

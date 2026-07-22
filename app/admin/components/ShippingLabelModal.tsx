@@ -27,13 +27,24 @@ export default function ShippingLabelModal({ results, onClose }: Props) {
   const printRef = useRef<HTMLDivElement>(null);
 
   const current = results[index];
-  const { item, trackingNumber, labelBase64, labelMimeType, labelError } = current;
+  const { item, shipmentId, trackingNumber, labelBase64, labelMimeType, labelError } = current;
   const { carrier, rate, shipment } = item;
   const carrierLabel = CARRIER_LABELS[carrier] ?? carrier.toUpperCase();
   const accentColor = CARRIER_COLORS[carrier] ?? '#34aef8';
   const now = new Date();
 
   function handlePrint() {
+    // Preferred: open the stored label in the browser's native viewer via the
+    // same endpoint the Reports reprint uses — it serves raw bytes (type sniffed
+    // server-side) and prints at true 4x6 scale. We deliberately do NOT call
+    // window.print() here; the operator prints from the viewer, which is what
+    // makes the scale correct (auto-print was rendering the label oversized).
+    if (shipmentId) {
+      window.open(`/api/shipping/label/${encodeURIComponent(shipmentId)}`, '_blank', 'noopener');
+      return;
+    }
+
+    // Fallbacks below (no stored id): open the label bytes directly, else an HTML page.
     // If we have a PDF label, open it directly and print
     if (labelBase64 && labelMimeType === 'application/pdf') {
       const byteChars = atob(labelBase64);

@@ -142,6 +142,7 @@ export default function CombinedCheckout({
       const data = await res.json();
       return {
         item,
+        shipmentId: data.id ?? null,
         trackingNumber: data.trackingNumber ?? 'PENDING',
         labelBase64: data.labelBase64 ?? null,
         labelMimeType: data.labelMimeType ?? null,

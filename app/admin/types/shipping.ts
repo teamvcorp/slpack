@@ -79,6 +79,9 @@ export interface ShipmentDocument {
 /** Result returned after submitting a CartItem to a carrier */
 export interface CartResult {
   item: CartItem;
+  /** Stored shipment-log id — lets the label print via /api/shipping/label/[id]
+   *  (native viewer, true scale), the same proven path as the Reports reprint. */
+  shipmentId?: string | null;
   trackingNumber: string;
   labelBase64: string | null;
   labelMimeType: string | null;
