@@ -155,13 +155,22 @@ export async function POST(req: NextRequest) {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'shipping@stormlakepackandship.com';
 
-    await resend.emails.send({
+    // Resend's SDK returns { data, error } — it does NOT throw on API rejections
+    // (e.g. an unverified sender domain). Surface that so the order never reports
+    // success when the shop email didn't actually go out.
+    const { error: sendError } = await resend.emails.send({
       from: `${SITE.name} Printing <${fromEmail}>`,
       to: PRINT_ORDER_EMAIL,
       replyTo: email,
       subject: `Print order — ${name} (${files.length} file${files.length === 1 ? '' : 's'}${quote.totalPages ? `, ~${money(quote.total)}` : ''})`,
       html,
     });
+    if (sendError) {
+      return NextResponse.json(
+        { error: `Order upload succeeded but the notification email failed: ${sendError.message ?? 'unknown error'}` },
+        { status: 502 }
+      );
+    }
 
     // Customer confirmation (best-effort — never blocks the order).
     try {
