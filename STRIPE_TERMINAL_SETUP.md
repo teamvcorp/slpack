@@ -31,23 +31,27 @@ The on-screen **Key in** button is still there for phone/keyed orders.
 
 - **Cancel:** press **Cancel payment** on screen while the reader is waiting — it clears the reader
   and voids the charge.
+- **Reader busy:** if another site is mid-sale on the shared reader, you'll see "reader is busy —
+  try again"; wait a moment and retry.
 - **No processing-fee line in person** — the reader charges the exact total.
 
 ## Test vs live mode (important)
-The reader registers in whichever mode your Stripe keys are in:
-- **Test key** (`sk_test_…`) → pair a reader in **test mode** and use Stripe's test cards to try it end-to-end.
-- **Live key** (`sk_live_…`) → pair the real reader in **live mode** for real payments.
+The reader must be registered in the **same mode** as this app's Stripe keys, and it only appears in
+the dropdown for that mode:
+- **Test key** (`sk_test_…`) → register/select a **test-mode** reader; use Stripe's test cards.
+- **Live key** (`sk_live_…`) → the **live-mode** reader for real payments.
 
-If a charge says the reader "isn't registered," the reader and your keys are likely in different
-modes — switch the reader's mode (Settings) or re-pair with the matching key.
+If the dropdown is empty or a charge says the reader "isn't found," the reader and your keys are
+likely in different modes — register the reader in the matching mode, then Refresh list and re-select.
 
 ## Troubleshooting
 | Symptom | Fix |
 |---|---|
-| No **"Tap on reader"** button at checkout | Reader not paired/enabled — Settings → Card reader → pair + enable. |
-| Reader status **offline** | Check its internet connection (Ethernet/WiFi); click **Refresh status**. |
-| "Could not start the reader payment" | Reader busy/offline, or another payment is stuck — press Cancel and retry. |
-| Pairing fails | Code expired — generate a new one; confirm test/live mode matches your keys. |
+| No **"Tap on reader"** button at checkout | No reader selected/enabled — Settings → Card reader → pick from the dropdown + enable. |
+| Reader status **offline** | Check its internet connection (Ethernet/WiFi); click **Run diagnostics**. |
+| Dropdown is empty | No reader on the account in this mode — register it once in the Stripe Dashboard (matching test/live), then **Refresh list**. |
+| "Card reader not found" at checkout | The selected reader was removed or is the wrong mode — re-select it in Settings. |
+| "Reader is busy" | Another site is mid-sale on the shared reader — wait and retry. |
 
 ## Notes
 - Technical details & code map: `stripe_terminal_s710_notes.md`.

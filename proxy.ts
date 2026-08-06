@@ -15,12 +15,14 @@ export async function proxy(req: NextRequest) {
   const isApi = pathname.startsWith('/api');
   const isAdminPage = pathname.startsWith('/admin');
 
-  // Public endpoints: the login page, the auth endpoint, and the public
-  // contact form must stay reachable without a session.
+  // Public endpoints: the login page, the auth endpoint, and the public forms
+  // (contact, website quote, print orders) must stay reachable without a session.
   if (
     pathname.startsWith('/admin/login') ||
     pathname.startsWith('/api/admin/auth') ||
     pathname.startsWith('/api/contact') ||
+    pathname.startsWith('/api/website-quote') ||
+    pathname.startsWith('/api/print-order') ||
     pathname.startsWith('/api/identity/webhook')
   ) {
     return NextResponse.next();

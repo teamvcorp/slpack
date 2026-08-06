@@ -6,12 +6,13 @@ import { useState } from "react";
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
 
+  // Absolute (root-prefixed) so the anchors also work from sub-pages like /printing.
   const links = [
-    { label: "Home", href: "#" },
-    { label: "Shipping", href: "#shipping" },
-    { label: "Packing", href: "#packing" },
-    { label: "Solutions", href: "#solutions" },
-    { label: "Websites", href: "#webdev" },
+    { label: "Home", href: "/" },
+    { label: "Shipping", href: "/#shipping" },
+    { label: "Packing", href: "/#packing" },
+    { label: "Solutions", href: "/#solutions" },
+    { label: "Websites", href: "/#webdev" },
   ];
 
   return (
@@ -30,7 +31,7 @@ export default function Navbar() {
         ))}
         <li>
           <Link
-            href="#contact"
+            href="/#contact"
             className="ml-2 rounded-lg bg-blue px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-navy hover:shadow-md"
           >
             Contact Us
@@ -67,7 +68,7 @@ export default function Navbar() {
           ))}
           <li className="pt-2">
             <Link
-              href="#contact"
+              href="/#contact"
               onClick={() => setIsOpen(false)}
               className="block rounded-lg bg-blue px-3 py-2.5 text-center text-sm font-semibold text-white transition-all duration-200 hover:bg-navy"
             >

@@ -7,9 +7,10 @@ API drives it — no browser/LAN connection, no connection token, no `@stripe/te
 ## Facts
 - SDK `stripe@^17.7.0`, pin `apiVersion: '2025-02-24.acacia'` (matches all other PI routes).
 - Reader network priority: **Ethernet › WiFi › cellular**; admin PIN **07139**; pairing code from
-  the reader's Settings → Generate pairing code (~10-min TTL, single use).
-- Reader is registered in whatever **mode** `STRIPE_SECRET_KEY` is (test key → test reader/test
-  cards; live key → live reader). Location must exist before registering a reader.
+  the reader's Settings → Generate pairing code (~10-min TTL) — used **only** for the one-time
+  Dashboard registration, not in-app.
+- Reader must be registered in the same **mode** as `STRIPE_SECRET_KEY` (test/live) and only appears
+  in this app's reader list for that mode.
 - **No credit surcharge in person** — card funding isn't known before the tap; charge base total.
 
 ## Payment flow (per charge)
@@ -27,14 +28,20 @@ Completion is detected by **polling** (the app has no webhooks) — client polls
 `/api/terminal/status` ~every 1.8s, ~90s timeout.
 
 ## Code map (this repo)
-- **Config** (`slpack.settings` doc `_id:'stripeTerminal'` `{ readerId, locationId, label, enabled }`):
-  - `app/api/admin/settings/terminal/route.ts` — GET/PUT; `GET ?status=1` also returns live
-    online/offline via `stripe.terminal.readers.retrieve` (guards `Reader | DeletedReader`).
-  - `app/api/admin/terminal/register/route.ts` — POST `{ registrationCode, label }`: creates a
-    Location from `SITE.address` if none, then `stripe.terminal.readers.create(...)`, stores ids.
-- **Payment** (all read `readerId`/`enabled` server-side; amounts server-priced for register/combined):
-  - `app/api/terminal/collect/route.ts` — create card_present PI + `processPaymentIntent`. Body:
-    `{ items, taxRate, shippingUSD? }` (priceCart) OR `{ amountUSD, description }` (shipping-only).
+- **SHARED reader, SELECT not register:** the S710 is one account-level device shared across sites;
+  register it ONCE in the Stripe Dashboard. This app lists + selects it — there is NO in-app
+  registration (the old `register` route was removed).
+- **Config** (`slpack.settings` doc `_id:'stripeTerminal'` `{ readerId, label, enabled }`):
+  - `app/api/admin/settings/terminal/route.ts` — GET / PUT `{ readerId?, label?, enabled }` (stores the
+    SELECTED reader) / DELETE (clears selection). `GET ?status=1` returns live online/offline +
+    firmware/serial via `stripe.terminal.readers.retrieve` (guards `Reader | DeletedReader`), plus
+    `readerError` on failure.
+  - `app/api/admin/terminal/readers/route.ts` — GET `stripe.terminal.readers.list()` → the selectable
+    readers for the Settings dropdown.
+- **Payment** (reads `readerId`/`enabled` server-side; amounts server-priced for register/combined):
+  - `app/api/terminal/collect/route.ts` — create card_present PI (metadata `site` = SITE_URL host, for
+    shared-account attribution) + `processPaymentIntent`. Body `{ items, taxRate, shippingUSD? }`
+    (priceCart) OR `{ amountUSD, description }` (shipping-only). Maps `terminal_reader_busy` → 409.
   - `app/api/terminal/status/route.ts` — POST `{ paymentIntentId }` → `{ status, failureMessage? }`.
   - `app/api/terminal/cancel/route.ts` — `cancelAction` + `paymentIntents.cancel` (best-effort).
 - **Client** `app/admin/components/stripeTerminal.ts` — `getTerminalEnabled()` (60s cache),

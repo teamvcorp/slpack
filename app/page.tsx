@@ -150,11 +150,13 @@ export default function Home() {
               <Card
                 title="Print & Copy"
                 icon=""
+                href="/printing"
+                cta="Send files to print"
                 features={[
                   "Black & white and color printing",
-                  "Binding and laminating",
+                  "Upload PDF or Word — any size",
+                  "Collated, stapled, emailed",
                   "Business cards & flyers",
-                  "Large-format printing",
                 ]}
               />
               <Card
