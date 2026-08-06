@@ -18,7 +18,7 @@ const EMPTY = {
   copies: "1",
   notes: "",
   recipientEmail: "",
-  company: "", // honeypot — must stay empty
+  hp_check: "", // honeypot — must stay empty; odd name so autofill ignores it
 };
 
 export default function PrintOrderForm() {
@@ -277,10 +277,21 @@ export default function PrintOrderForm() {
         <textarea id="po-notes" name="notes" rows={3} placeholder="Paper size, double-sided, pickup vs. hold, deadline…" value={formData.notes} onChange={handleChange} className={inputClass} />
       </div>
 
-      {/* Honeypot */}
+      {/* Honeypot — odd name + ignore hints so browser/password-manager autofill
+          doesn't fill it (which would make a real submit look like a bot). */}
       <div className="sr-only" aria-hidden="true">
-        <label htmlFor="po-company">Company</label>
-        <input type="text" id="po-company" name="company" tabIndex={-1} autoComplete="off" value={formData.company} onChange={handleChange} />
+        <label htmlFor="po-hp">Leave this field empty</label>
+        <input
+          type="text"
+          id="po-hp"
+          name="hp_check"
+          tabIndex={-1}
+          autoComplete="off"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          value={formData.hp_check}
+          onChange={handleChange}
+        />
       </div>
 
       {busy && progress && <p className="text-sm text-navy/60">{progress}</p>}

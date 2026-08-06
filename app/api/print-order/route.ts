@@ -53,8 +53,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid submission.' }, { status: 400 });
     }
 
-    // Honeypot: real users never fill "company". Pretend success.
-    if (typeof body.company === 'string' && body.company.trim() !== '') {
+    // Honeypot: real users never fill the hidden "hp_check" field. Pretend success.
+    if (typeof body.hp_check === 'string' && body.hp_check.trim() !== '') {
       return NextResponse.json({ ok: true });
     }
 
@@ -153,7 +153,9 @@ export async function POST(req: NextRequest) {
 
     const { Resend } = await import('resend');
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'shipping@stormlakepackandship.com';
+    // Default to the verified fyht4.com domain (the old stormlakepackandship.com
+    // default is unverified in Resend and gets rejected). Override via env.
+    const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'noreply@fyht4.com';
 
     // Resend's SDK returns { data, error } — it does NOT throw on API rejections
     // (e.g. an unverified sender domain). Surface that so the order never reports
