@@ -2,7 +2,14 @@
 
 import { useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
-import { computePrintPrice, money, PRINT_PRICING, type PrintColor } from "@/lib/printPricing";
+import {
+  computePrintPrice,
+  money,
+  PRINT_PRICING,
+  LAMINATION_PER_PAGE,
+  type PrintColor,
+  type PrintSides,
+} from "@/lib/printPricing";
 
 type Status = "idle" | "uploading" | "sending" | "sent" | "error";
 
@@ -16,6 +23,7 @@ const EMPTY = {
   phone: "",
   pages: "",
   copies: "1",
+  laminatePages: "",
   notes: "",
   recipientEmail: "",
   hp_check: "", // honeypot — must stay empty; odd name so autofill ignores it
@@ -24,6 +32,7 @@ const EMPTY = {
 export default function PrintOrderForm() {
   const [formData, setFormData] = useState({ ...EMPTY });
   const [color, setColor] = useState<PrintColor>("bw");
+  const [sides, setSides] = useState<PrintSides>("single");
   const [collated, setCollated] = useState(false);
   const [stapled, setStapled] = useState(false);
   const [sendToRecipient, setSendToRecipient] = useState(false);
@@ -35,7 +44,8 @@ export default function PrintOrderForm() {
 
   const pagesNum = Number(formData.pages) || 0;
   const copiesNum = Math.max(1, Number(formData.copies) || 1);
-  const quote = computePrintPrice({ pages: pagesNum, copies: copiesNum, color });
+  const laminateNum = Math.max(0, Number(formData.laminatePages) || 0);
+  const quote = computePrintPrice({ pages: pagesNum, copies: copiesNum, color, laminatePages: laminateNum });
   const busy = status === "uploading" || status === "sending";
 
   function handleChange(
@@ -93,11 +103,13 @@ export default function PrintOrderForm() {
         body: JSON.stringify({
           ...formData,
           color,
+          sides,
           collated,
           stapled,
           sendToRecipient,
           pages: pagesNum,
           copies: copiesNum,
+          laminatePages: laminateNum,
           files: uploaded,
         }),
       });
@@ -109,6 +121,7 @@ export default function PrintOrderForm() {
       setStatus("sent");
       setFormData({ ...EMPTY });
       setColor("bw");
+      setSides("single");
       setCollated(false);
       setStapled(false);
       setSendToRecipient(false);
@@ -199,6 +212,44 @@ export default function PrintOrderForm() {
           </div>
         </div>
 
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div>
+            <span className={labelClass}>Sides</span>
+            <div className="mt-1 flex gap-2">
+              {(["single", "double"] as PrintSides[]).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSides(s)}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    sides === s
+                      ? "border-blue bg-blue text-white"
+                      : "border-navy/20 bg-white text-navy/70 hover:bg-cream"
+                  }`}
+                >
+                  {s === "single" ? "Single-sided" : "Double-sided"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label htmlFor="po-laminate" className={labelClass}>
+              Laminate <span className="text-navy/40">(pages · ${LAMINATION_PER_PAGE}/page)</span>
+            </label>
+            <input
+              type="number"
+              min="0"
+              inputMode="numeric"
+              id="po-laminate"
+              name="laminatePages"
+              placeholder="0"
+              value={formData.laminatePages}
+              onChange={handleChange}
+              className={inputClass}
+            />
+          </div>
+        </div>
+
         <div className="mt-3 flex flex-wrap gap-4">
           <label className="flex items-center gap-2 text-sm text-navy/80">
             <input type="checkbox" checked={collated} onChange={(e) => setCollated(e.target.checked)} className="h-4 w-4 rounded border-navy/30 text-blue focus:ring-blue" />
@@ -216,19 +267,23 @@ export default function PrintOrderForm() {
             <span className="font-semibold text-navy">Estimated price</span>
             {quote.totalPages > 0 && (
               <p className="text-xs text-navy/50">
-                {quote.totalPages} printed page{quote.totalPages === 1 ? "" : "s"} · {quote.tierCount} @ {(quote.tierRate * 100).toFixed(0)}¢
-                {quote.overCount > 0 ? ` + ${quote.overCount} @ ${(quote.overRate * 100).toFixed(0)}¢` : ""}
+                Print: {quote.totalPages} page{quote.totalPages === 1 ? "" : "s"} · {money(quote.printTotal)}
+              </p>
+            )}
+            {quote.laminationTotal > 0 && (
+              <p className="text-xs text-navy/50">
+                Laminate: {quote.laminatePages} @ ${LAMINATION_PER_PAGE} · {money(quote.laminationTotal)}
               </p>
             )}
           </div>
           <span className="text-xl font-extrabold text-navy">
-            {quote.totalPages > 0 ? money(quote.total) : "—"}
+            {quote.total > 0 ? money(quote.total) : "—"}
           </span>
         </div>
         <p className="mt-1 text-[11px] text-navy/40">
           Estimate only — final price is confirmed at the counter. {PRINT_PRICING.bw.tierRate * 100}¢/page B&amp;W
           (then {PRINT_PRICING.bw.overRate * 100}¢ after {PRINT_PRICING.bw.tierPages}); {PRINT_PRICING.color.tierRate * 100}¢/page color
-          (then {PRINT_PRICING.color.overRate * 100}¢ after {PRINT_PRICING.color.tierPages}).
+          (then {PRINT_PRICING.color.overRate * 100}¢ after {PRINT_PRICING.color.tierPages}); lamination ${LAMINATION_PER_PAGE}/page.
         </p>
       </div>
 

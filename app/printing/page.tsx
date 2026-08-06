@@ -3,7 +3,7 @@ import Link from "next/link";
 import Header from "../components/Header";
 import { Footer } from "../components/Footer";
 import PrintOrderForm from "../components/PrintOrderForm";
-import { PRINT_PRICING } from "@/lib/printPricing";
+import { PRINT_PRICING, LAMINATION_PER_PAGE } from "@/lib/printPricing";
 
 export const metadata: Metadata = {
   title: "Printing & Copy",
@@ -58,6 +58,10 @@ export default function PrintingPage() {
               </p>
             </div>
           </div>
+
+          <p className="mx-auto mt-4 max-w-2xl text-center text-sm text-navy/60">
+            Single- or double-sided, collated, stapled, and <strong>lamination ${LAMINATION_PER_PAGE}/page</strong> — all optional.
+          </p>
 
           {/* Order form */}
           <div className="mx-auto mt-10 max-w-2xl rounded-2xl border border-navy/10 bg-white p-6 shadow-sm sm:p-8">

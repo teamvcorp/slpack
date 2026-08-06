@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeEmail } from '@/lib/email';
 import { clientIp, hit } from '@/lib/rateLimit';
 import { SITE } from '@/lib/siteConfig';
-import { computePrintPrice, money, type PrintColor } from '@/lib/printPricing';
+import { computePrintPrice, money, LAMINATION_PER_PAGE, type PrintColor } from '@/lib/printPricing';
 
 // Node runtime for Resend Buffer/email sending consistency with other routes.
 export const runtime = 'nodejs';
@@ -62,8 +62,10 @@ export async function POST(req: NextRequest) {
     const email = sanitizeEmail(body.email);
     const phone = String(body.phone ?? '').trim();
     const color: PrintColor = body.color === 'color' ? 'color' : 'bw';
+    const sides: 'single' | 'double' = body.sides === 'double' ? 'double' : 'single';
     const pages = Number(body.pages) || 0;
     const copies = Number(body.copies) || 1;
+    const laminatePages = Math.max(0, Number(body.laminatePages) || 0);
     const collated = Boolean(body.collated);
     const stapled = Boolean(body.stapled);
     const sendToRecipient = Boolean(body.sendToRecipient);
@@ -106,7 +108,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Messaging is not configured.' }, { status: 503 });
     }
 
-    const quote = computePrintPrice({ pages, copies, color });
+    const quote = computePrintPrice({ pages, copies, color, laminatePages });
 
     // ── Build the order email ────────────────────────────────────────────────
     const row = (label: string, value: string) =>
@@ -116,10 +118,13 @@ export async function POST(req: NextRequest) {
       .filter(Boolean)
       .join(', ') || 'None';
 
-    const estimateHtml = quote.totalPages > 0
-      ? `<p style="margin:6px 0;"><strong>Estimated price:</strong> ${money(quote.total)}
-         <span style="color:#666;">(${quote.totalPages} printed page${quote.totalPages === 1 ? '' : 's'};
-         ${quote.tierCount} @ ${(quote.tierRate * 100).toFixed(0)}¢${quote.overCount > 0 ? ` + ${quote.overCount} @ ${(quote.overRate * 100).toFixed(0)}¢` : ''})</span></p>`
+    const estimateHtml = quote.total > 0
+      ? `<p style="margin:6px 0;"><strong>Estimated price:</strong> ${money(quote.total)}</p>
+         <p style="margin:2px 0;color:#666;font-size:13px;">Print: ${quote.totalPages} page${quote.totalPages === 1 ? '' : 's'} — ${money(quote.printTotal)}${
+           quote.laminationTotal > 0
+             ? `<br>Laminate: ${quote.laminatePages} @ $${LAMINATION_PER_PAGE} — ${money(quote.laminationTotal)}`
+             : ''
+         }</p>`
       : `<p style="margin:6px 0;color:#666;">Page count not provided — quote at the counter.</p>`;
 
     const fileList = files
@@ -139,8 +144,10 @@ export async function POST(req: NextRequest) {
       ${row('Phone', phone)}
       <hr style="border:none;border-top:1px solid #eee;margin:12px 0;">
       ${row('Print type', color === 'color' ? 'Color' : 'Black & white')}
+      ${row('Sides', sides === 'double' ? 'Double-sided' : 'Single-sided')}
       ${row('Pages (per set)', pages ? String(pages) : '—')}
       ${row('Copies', String(copies))}
+      ${row('Laminate', laminatePages > 0 ? `${laminatePages} page${laminatePages === 1 ? '' : 's'}` : 'No')}
       ${row('Finishing', finishing)}
       ${sendToRecipient && recipientEmail ? row('Email finished files to', recipientEmail) : ''}
       ${estimateHtml}

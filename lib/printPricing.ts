@@ -15,6 +15,11 @@ export const PRINT_PRICING = {
   color: { label: 'Color', tierPages: 25, tierRate: 0.75, overRate: 0.5 },
 } as const;
 
+/** Lamination add-on, per laminated page. */
+export const LAMINATION_PER_PAGE = 2;
+
+export type PrintSides = 'single' | 'double';
+
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface PrintQuote {
@@ -30,6 +35,13 @@ export interface PrintQuote {
   tierCount: number;
   /** pages billed at the cheaper over-tier rate */
   overCount: number;
+  /** printing cost only (before lamination) */
+  printTotal: number;
+  /** number of pages to laminate */
+  laminatePages: number;
+  /** lamination cost (laminatePages × $2) */
+  laminationTotal: number;
+  /** grand total = printTotal + laminationTotal */
   total: number;
 }
 
@@ -38,6 +50,7 @@ export function computePrintPrice(input: {
   pages: number;
   copies: number;
   color: PrintColor;
+  laminatePages?: number;
 }): PrintQuote {
   const pages = Number.isFinite(input.pages) ? Math.max(0, Math.floor(input.pages)) : 0;
   const copies = Number.isFinite(input.copies) ? Math.max(1, Math.floor(input.copies)) : 1;
@@ -46,7 +59,12 @@ export function computePrintPrice(input: {
 
   const tierCount = Math.min(totalPages, t.tierPages);
   const overCount = Math.max(0, totalPages - t.tierPages);
-  const total = round2(tierCount * t.tierRate + overCount * t.overRate);
+  const printTotal = round2(tierCount * t.tierRate + overCount * t.overRate);
+
+  const laminatePages = Number.isFinite(input.laminatePages)
+    ? Math.max(0, Math.floor(input.laminatePages as number))
+    : 0;
+  const laminationTotal = round2(laminatePages * LAMINATION_PER_PAGE);
 
   return {
     color: input.color,
@@ -58,7 +76,10 @@ export function computePrintPrice(input: {
     overRate: t.overRate,
     tierCount,
     overCount,
-    total,
+    printTotal,
+    laminatePages,
+    laminationTotal,
+    total: round2(printTotal + laminationTotal),
   };
 }
 
