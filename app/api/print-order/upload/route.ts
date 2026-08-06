@@ -22,6 +22,12 @@ const ALLOWED_CONTENT_TYPES = [
 const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return NextResponse.json(
+      { error: 'Blob storage is not configured (BLOB_READ_WRITE_TOKEN missing). Connect a Vercel Blob store and redeploy.' },
+      { status: 503 }
+    );
+  }
   const body = (await request.json()) as HandleUploadBody;
   try {
     const jsonResponse = await handleUpload({
