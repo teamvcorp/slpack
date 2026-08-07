@@ -37,6 +37,9 @@ async function submitItem(
       carrier: item.carrier,
       serviceName: item.rate.serviceName,
       serviceCode: item.rate.serviceCode,
+      // Must reach the carrier label route, or a quoted-Saturday shipment
+      // books standard Mon–Fri delivery. Intl submit ignores it.
+      saturdayDelivery: item.rate.saturdayDelivery === true,
       shipment: item.shipment,
       shippingUSD,
       insuranceUSD,

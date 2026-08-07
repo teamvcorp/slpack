@@ -54,3 +54,19 @@ export function formatDeliveryDate(raw: unknown): string | null {
   if (Number.isNaN(date.getTime())) return s;
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
+
+/**
+ * True when a carrier date string (UPS `YYYYMMDD`, ISO datetime, `YYYY-MM-DD`)
+ * falls on a Saturday. Parsed as a plain calendar date — carrier dates are
+ * already local to the delivery address, so no time-zone math. Unparseable or
+ * empty input → false (never guess a Saturday).
+ */
+export function isSaturdayDate(raw: unknown): boolean {
+  if (raw == null) return false;
+  const s = String(raw).trim();
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(s) ?? /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (!m) return false;
+  const [, y, mo, d] = m.map(Number) as unknown as [number, number, number, number];
+  const date = new Date(y, mo - 1, d);
+  return !Number.isNaN(date.getTime()) && date.getDay() === 6;
+}

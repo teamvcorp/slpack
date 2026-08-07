@@ -127,6 +127,9 @@ export default function CombinedCheckout({
           carrier: item.carrier,
           serviceName: item.rate.serviceName,
           serviceCode: item.rate.serviceCode,
+          // Must reach the carrier label route, or a quoted-Saturday shipment
+          // books standard Mon–Fri delivery.
+          saturdayDelivery: item.rate.saturdayDelivery === true,
           shipment: item.shipment,
           shippingUSD: shippingUSDItem,
           insuranceUSD,

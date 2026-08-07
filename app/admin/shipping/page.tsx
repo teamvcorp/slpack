@@ -123,6 +123,8 @@ export default function ShippingComparisonPage() {
     return JSON.stringify([
       s.originZip, s.destZip, s.destCity, s.destState, s.destCountry,
       s.residential, s.weightLbs, s.lengthIn, s.widthIn, s.heightIn,
+      // Packaging changes FedEx pricing (envelope vs own box) — stale otherwise.
+      s.packaging ?? 'YOUR_PACKAGING',
     ]);
   }
 
@@ -354,6 +356,7 @@ export default function ShippingComparisonPage() {
           carrier={previewCarrier.carrier}
           rate={previewCarrier.rate}
           declaredValueUSD={currentShipment.declaredValueUSD}
+          packaging={currentShipment.packaging}
           customerName={currentShipment.customerName}
           customerEmail={currentShipment.customerEmail}
           onConfirm={handleDetailConfirm}

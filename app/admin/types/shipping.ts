@@ -1,3 +1,11 @@
+/** Packaging the customer's item ships in. FedEx-only for now: FEDEX_ENVELOPE
+ *  gets FedEx's (cheaper) envelope pricing — Express services only, envelope
+ *  rate applies up to 8 oz, dimensions omitted (FedEx knows its own packaging).
+ *  Other carriers ignore this and quote as a parcel. Absent = YOUR_PACKAGING.
+ *  To add more FedEx types later: extend this union, the ShipmentForm dropdown,
+ *  and the whitelist in the FedEx rate/label routes (see fedex_packaging_notes.md). */
+export type PackagingType = 'YOUR_PACKAGING' | 'FEDEX_ENVELOPE';
+
 export interface ShipmentInput {
   originZip: string;
   originCountry: string;
@@ -16,6 +24,8 @@ export interface ShipmentInput {
   lengthIn: number;
   widthIn: number;
   heightIn: number;
+  /** Optional packaging selection (see PackagingType). Undefined = your own box. */
+  packaging?: PackagingType;
   declaredValueUSD: number;
   /** Recipient (ship-to) contact */
   customerName: string;
@@ -36,6 +46,12 @@ export interface ShippingRate {
   deliveryDate: string | null;
   /** True when package is 108–130" combined length+girth (oversized surcharge applies) */
   oversized?: boolean;
+  /** True = this rate is the carrier's Saturday-delivery variant. The Saturday
+   *  surcharge is ALREADY included in totalChargeUSD (FedEx folds it into
+   *  totalNetFedExCharge; UPS into the rated total) — never add it again.
+   *  Must be forwarded to the label route or the label books standard
+   *  (Mon–Fri) delivery. See saturday_delivery_notes.md. */
+  saturdayDelivery?: boolean;
 }
 
 export type CarrierKey = 'fedex' | 'ups' | 'usps' | 'dhl';
@@ -130,6 +146,8 @@ export interface ShipmentLogEntry {
   /** Description of the insured contents, if declared-value coverage was added */
   insuranceDescription?: string;
   paymentMethod?: 'card' | 'cash';
+  /** True when the label was booked with the carrier's Saturday-delivery service */
+  saturdayDelivery?: boolean;
   /** Ties this shipment to a combined register+shipping transaction (one charge, one receipt) */
   transactionId?: string;
   /** Sender info captured when creating the shipment (for re-creating ship-from contact) */

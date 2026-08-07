@@ -12,6 +12,12 @@ const BASE = process.env.UPS_SANDBOX === 'false'
   ? 'https://onlinetools.ups.com'
   : 'https://wwwcie.ups.com';
 
+// UPS Saturday delivery only exists for the air services (Next Day Air family,
+// 2nd Day Air family). Whitelist = defense in depth against hand-crafted
+// requests pairing the flag with an ineligible service.
+// See saturday_delivery_notes.md.
+const SATURDAY_ELIGIBLE_SERVICES = new Set(['01', '13', '14', '02', '59']);
+
 export async function POST(req: NextRequest) {
   let requestSummary: Record<string, unknown> | undefined;
   try {
@@ -24,9 +30,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { shipment, serviceCode, insurance } = await req.json();
+    const { shipment, serviceCode, insurance, saturdayDelivery } = await req.json();
+
+    // Strict-boolean coerce (never trust client strings), then whitelist-gate.
+    const saturdayEligible =
+      saturdayDelivery === true && SATURDAY_ELIGIBLE_SERVICES.has(String(serviceCode));
+
     requestSummary = {
       serviceCode,
+      saturdayDelivery: saturdayDelivery === true,
       originZip: shipment?.originZip,
       destZip: shipment?.destZip,
       destCountry: shipment?.destCountry,
@@ -118,6 +130,13 @@ export async function POST(req: NextRequest) {
               BillShipper: { AccountNumber: process.env.UPS_ACCOUNT_NUMBER ?? '' },
             },
           },
+          // Shipment-level Saturday delivery (distinct from the package-level
+          // PackageServiceOptions above). Element presence = true, per UPS's
+          // indicator convention. Without it the label books Mon–Fri delivery
+          // even when a Saturday rate was quoted.
+          ...(saturdayEligible
+            ? { ShipmentServiceOptions: { SaturdayDeliveryIndicator: '' } }
+            : {}),
           Service: { Code: serviceCode ?? '03', Description: 'Service' },
           Package: [
             {

@@ -56,7 +56,9 @@ export default function FedExPanel({ result, onSelectRate, selectedRateCode }: P
             {[...rates]
               .sort((a, b) => a.totalChargeUSD - b.totalChargeUSD)
               .map((rate) => (
-                <li key={rate.serviceCode}>
+                // Composite key: Saturday variants share the serviceCode with
+                // their standard sibling (duplicate rateReplyDetails entries).
+                <li key={rate.serviceCode + (rate.saturdayDelivery ? '-SAT' : '')}>
                   <button
                     type="button"
                     onClick={() => onSelectRate(rate)}
@@ -67,7 +69,15 @@ export default function FedExPanel({ result, onSelectRate, selectedRateCode }: P
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium text-navy">{rate.serviceName}</span>
+                      <span className="text-sm font-medium text-navy">
+                        {/* Badge instead of the "— Saturday Delivery" name suffix (cart/receipts keep the full name) */}
+                        {rate.serviceName.replace(' — Saturday Delivery', '')}
+                        {rate.saturdayDelivery && (
+                          <span className="ml-1.5 inline-block rounded-full bg-[#FF6600] px-1.5 py-0.5 align-middle text-[10px] font-bold leading-none text-white">
+                            SATURDAY
+                          </span>
+                        )}
+                      </span>
                       <div className="shrink-0 text-right">
                         <div className="text-base font-bold text-[#4D148C]">
                           ${retailPrice(rate.totalChargeUSD).toFixed(2)}
@@ -78,10 +88,16 @@ export default function FedExPanel({ result, onSelectRate, selectedRateCode }: P
                     </div>
                     {(rate.estimatedDays || rate.deliveryDate) && (
                       <p className="mt-0.5 text-xs text-navy/40">
-                        {rate.estimatedDays
-                          ? `${rate.estimatedDays} business day${rate.estimatedDays !== 1 ? 's' : ''}`
+                        {/* Lead with the carrier's committed DATE. A bare "1 business
+                            day" reads as next-calendar-day (i.e. Saturday when quoting
+                            on a Friday) while the carrier commits Monday — the exact
+                            mix-up behind the Saturday-delivery incident. */}
+                        {rate.deliveryDate
+                          ? `Delivers ${rate.deliveryDate}`
+                          : `${rate.estimatedDays} business day${rate.estimatedDays !== 1 ? 's' : ''} (Mon–Fri)`}
+                        {rate.deliveryDate && rate.estimatedDays
+                          ? ` · ${rate.estimatedDays} business day${rate.estimatedDays !== 1 ? 's' : ''}`
                           : ''}
-                        {rate.deliveryDate ? `${rate.estimatedDays ? ' · ' : ''}${rate.deliveryDate}` : ''}
                       </p>
                     )}
                   </button>

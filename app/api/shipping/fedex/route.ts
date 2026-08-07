@@ -3,6 +3,7 @@ import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
 import { fedexTransitToDays, formatDeliveryDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
+import { localDateStamp } from '@/lib/localDate';
 
 const ROUTE = 'shipping/fedex';
 
@@ -24,18 +25,34 @@ export async function POST(req: NextRequest) {
 
     const {
       originZip, destZip, destCountry, residential,
-      weightLbs, lengthIn, widthIn, heightIn,
+      weightLbs, lengthIn, widthIn, heightIn, packaging,
     } = await req.json();
-    requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn };
+    requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn, packaging };
+
+    // Whitelist the packaging type — never pass a client string straight to the
+    // carrier. FEDEX_ENVELOPE = FedEx's own envelope (cheaper document rate,
+    // Express services only); anything else rates as our own packaging.
+    const fedexPackaging = packaging === 'FEDEX_ENVELOPE' ? 'FEDEX_ENVELOPE' : 'YOUR_PACKAGING';
 
     const token = await getFedexToken();
 
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    // Store-local date (America/Chicago) — UTC would roll past midnight at 7 pm
+    // local and shift FedEx's committed delivery date. See lib/localDate.ts.
+    const today = localDateStamp(); // YYYY-MM-DD
 
     const payload = {
       accountNumber: { value: process.env.FEDEX_ACCOUNT_NUMBER ?? '' },
-      // Ask FedEx to return commit/transit-time details with the rates.
-      rateRequestControlParameters: { returnTransitTimes: true },
+      // returnTransitTimes: include commit/transit-time details with the rates.
+      // variableOptions SATURDAY_DELIVERY: also return Saturday-delivery
+      // variants — FedEx replies with DUPLICATE serviceType entries (standard +
+      // Saturday, flagged commit.saturdayDelivery=true, surcharge already in
+      // the net charge). NOTE: never request Saturday via shipmentSpecialServices
+      // here — that would suppress the standard variants entirely.
+      // See saturday_delivery_notes.md.
+      rateRequestControlParameters: {
+        returnTransitTimes: true,
+        variableOptions: 'SATURDAY_DELIVERY',
+      },
       requestedShipment: {
         shipper: { address: { postalCode: String(originZip), countryCode: 'US' } },
         recipient: {
@@ -48,18 +65,26 @@ export async function POST(req: NextRequest) {
         },
         pickupType: 'USE_SCHEDULED_PICKUP',
         shipDateStamp: today, // lets FedEx compute committed delivery dates
+        packagingType: fedexPackaging,
         // ACCOUNT = our negotiated rate (actual cost). LIST would return the
         // higher published/retail price, not what we actually pay FedEx.
         rateRequestType: ['ACCOUNT'],
         requestedPackageLineItems: [
           {
             weight: { units: 'LB', value: Number(weightLbs) },
-            dimensions: {
-              length: Number(lengthIn),
-              width: Number(widthIn),
-              height: Number(heightIn),
-              units: 'IN',
-            },
+            // Dimensions only apply to our own packaging — FedEx-branded
+            // packaging (envelope) has known dimensions; sending ours can
+            // reject the request or mis-rate it.
+            ...(fedexPackaging === 'YOUR_PACKAGING'
+              ? {
+                  dimensions: {
+                    length: Number(lengthIn),
+                    width: Number(widthIn),
+                    height: Number(heightIn),
+                    units: 'IN',
+                  },
+                }
+              : {}),
           },
         ],
       },
@@ -112,12 +137,19 @@ export async function POST(req: NextRequest) {
       const deliveryDate = formatDeliveryDate(
         dateDetail?.dayFormat ?? dateDetail?.dayCxsFormat
       );
+      // Saturday variant? (duplicate serviceType entry from variableOptions —
+      // its Saturday surcharge is already inside the net charge above).
+      const saturdayDelivery = commit?.saturdayDelivery === true;
+      const baseName = (d.serviceName as string) ?? (d.serviceType as string);
       return {
         serviceCode: d.serviceType as string,
-        serviceName: (d.serviceName as string) ?? (d.serviceType as string),
+        // Suffix appended HERE ONLY — cart, receipts, and the shipment log all
+        // display serviceName, so they inherit it. Don't re-append downstream.
+        serviceName: saturdayDelivery ? `${baseName} — Saturday Delivery` : baseName,
         totalChargeUSD: parseFloat(netCharge),
         estimatedDays,
         deliveryDate,
+        ...(saturdayDelivery ? { saturdayDelivery: true } : {}),
       };
     });
 

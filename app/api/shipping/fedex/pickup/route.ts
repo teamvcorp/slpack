@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
+import { localDateStamp } from '@/lib/localDate';
 
 const ROUTE = 'shipping/fedex/pickup';
 
@@ -51,7 +52,9 @@ export async function POST(req: NextRequest) {
       return await logAndRespond({ route: ROUTE, carrier: 'fedex', status: 400, message: `Invalid carrierCode: ${carrierCode}` });
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    // Store-local date — with UTC, a pickup booked after 7 pm local compared
+    // today's date against *tomorrow's*, mis-flagging SAME_DAY as FUTURE_DAY.
+    const today = localDateStamp();
     const pickupDateType = pickupDate === today ? 'SAME_DAY' : 'FUTURE_DAY';
 
     const payload = {

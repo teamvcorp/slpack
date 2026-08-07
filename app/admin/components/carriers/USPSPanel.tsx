@@ -75,7 +75,7 @@ export default function USPSPanel({ result, onSelectRate, selectedRateCode }: Pr
                     </div>
                     {rate.oversized && (
                       <p className="mt-0.5 text-[11px] font-medium text-amber-600">
-                        ⚠ Oversized surcharge applies (108–130")
+                        ⚠ Oversized surcharge applies (108–130&quot;)
                       </p>
                     )}
                     {(rate.estimatedDays || rate.deliveryDate) && (

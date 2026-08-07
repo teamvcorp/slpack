@@ -3,6 +3,7 @@ import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
 import { normalizePostal } from '@/lib/postal';
 import { fedexCustomsClearanceDetail, fedexTotalCustomsValue } from '@/lib/shippingIntl';
+import { localDateStamp } from '@/lib/localDate';
 import type { IntlShipmentInput } from '@/app/admin/types/shippingIntl';
 
 // FedEx Estimated Duties & Taxes (EDT). Used when the shipper prepays duties
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     requestSummary = { destCountry: shipment?.destCountry, serviceCode, commodities: customs.commodities.length };
 
     const token = await getFedexToken();
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateStamp(); // store-local YYYY-MM-DD (see lib/localDate.ts)
 
     const payload = {
       accountNumber: { value: process.env.FEDEX_ACCOUNT_NUMBER ?? '' },

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
+import { localDateStamp } from '@/lib/localDate';
 
 const ROUTE = 'shipping/dhl';
 
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     // Ship tomorrow (next business day)
     const shipDate = new Date();
     shipDate.setDate(shipDate.getDate() + 1);
-    const plannedDate = shipDate.toISOString().split('T')[0];
+    const plannedDate = localDateStamp(shipDate); // store-local (see lib/localDate.ts)
 
     const isInternational = destCountry && destCountry !== 'US';
 

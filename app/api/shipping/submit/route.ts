@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
       carrier,
       serviceName,
       serviceCode,
+      saturdayDelivery,
       shipment,
       shippingUSD,
       insuranceUSD,
@@ -45,7 +46,16 @@ export async function POST(req: NextRequest) {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', [INTERNAL_HEADER]: internalApiToken() },
-            body: JSON.stringify({ shipment, serviceCode, insurance }),
+            // saturdayDelivery must be forwarded or the label books standard
+            // Mon–Fri delivery even though a Saturday rate was quoted/charged.
+            // (serviceName already carries the "— Saturday Delivery" suffix from
+            // the rate route — never re-append it here.)
+            body: JSON.stringify({
+              shipment,
+              serviceCode,
+              insurance,
+              saturdayDelivery: saturdayDelivery === true,
+            }),
           }
         );
         const labelData = await labelRes.json();
@@ -86,6 +96,7 @@ export async function POST(req: NextRequest) {
       destAttention: shipment.destAttention?.trim() || undefined,
       insuranceDescription: insurance?.description?.trim() || undefined,
       paymentMethod: (paymentMethod === 'cash' ? 'cash' : 'card') as 'card' | 'cash',
+      saturdayDelivery: saturdayDelivery === true ? true : undefined,
       transactionId: typeof transactionId === 'string' ? transactionId : undefined,
     };
 

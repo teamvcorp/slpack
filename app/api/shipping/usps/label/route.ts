@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUspsToken, BASE } from '@/lib/uspsToken';
 import { logAndRespond } from '@/lib/apiErrors';
+import { localDateStamp } from '@/lib/localDate';
 
 const ROUTE = 'shipping/usps/label';
 
@@ -199,7 +200,8 @@ export async function POST(req: NextRequest) {
       extraServices.push({ extraService: 930 }); // 930 = Insurance (Retail)
     }
 
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    // Store-local date — UTC rolled to tomorrow after 7 pm local (see lib/localDate.ts)
+    const today = localDateStamp(); // YYYY-MM-DD
 
     // Split customer name into first/last for USPS address format (legacy flow)
     const nameParts = (legacyShipment?.customerName || 'Customer').trim().split(' ');

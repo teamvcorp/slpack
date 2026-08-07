@@ -3,8 +3,25 @@ import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
+import { localDateStamp } from '@/lib/localDate';
 
 const ROUTE = 'shipping/fedex/label';
+
+// FedEx offers Saturday delivery only on Express services (US), for a
+// surcharge. The docs list First Overnight / Priority Overnight / 2Day, but
+// the Rate API also returns Saturday variants for STANDARD_OVERNIGHT and
+// FEDEX_2_DAY_AM (verified in sandbox 2026-08-07), so the whitelist covers
+// every service FedEx itself quotes with commit.saturdayDelivery=true — a
+// quoted+charged Saturday rate must never be silently booked as Mon–Fri.
+// Whitelist = defense in depth: a hand-crafted request can't attach
+// SATURDAY_DELIVERY to Ground/Home. See saturday_delivery_notes.md.
+const SATURDAY_ELIGIBLE_SERVICES = new Set([
+  'FIRST_OVERNIGHT',
+  'PRIORITY_OVERNIGHT',
+  'STANDARD_OVERNIGHT',
+  'FEDEX_2_DAY',
+  'FEDEX_2_DAY_AM',
+]);
 
 const ORIGIN = SITE.address;
 
@@ -24,9 +41,23 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { shipment, serviceCode, insurance } = await req.json();
+    const { shipment, serviceCode, insurance, saturdayDelivery } = await req.json();
+
+    // Strict-boolean coerce (never trust client strings like "false"), then
+    // gate on the eligible-service whitelist above.
+    const saturdayRequested = saturdayDelivery === true;
+    const saturdayEligible =
+      saturdayRequested && SATURDAY_ELIGIBLE_SERVICES.has(String(serviceCode));
+
+    // Whitelist the packaging type — FEDEX_ENVELOPE books FedEx's own envelope
+    // (cheaper document pricing, Express only); anything else = our packaging.
+    const fedexPackaging =
+      shipment?.packaging === 'FEDEX_ENVELOPE' ? 'FEDEX_ENVELOPE' : 'YOUR_PACKAGING';
+
     requestSummary = {
       serviceCode,
+      saturdayDelivery: saturdayRequested,
+      packaging: fedexPackaging,
       originZip: shipment?.originZip,
       destZip: shipment?.destZip,
       destCountry: shipment?.destCountry,
@@ -40,7 +71,10 @@ export async function POST(req: NextRequest) {
 
     const token = await getFedexToken();
     const accountNumber = process.env.FEDEX_ACCOUNT_NUMBER;
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    // Store-local date — CRITICAL for the delivery commitment: with UTC, a
+    // 7 pm Friday label was stamped *Saturday*, so FedEx committed to Monday
+    // even for Saturday-delivery shipments. See lib/localDate.ts.
+    const today = localDateStamp(); // YYYY-MM-DD
 
     // Build declared value object for insurance
     const declaredValue =
@@ -94,8 +128,14 @@ export async function POST(req: NextRequest) {
         ],
         shipDatestamp: today,
         serviceType: String(serviceCode),
-        packagingType: 'YOUR_PACKAGING',
+        packagingType: fedexPackaging,
         pickupType: 'USE_SCHEDULED_PICKUP',
+        // Saturday delivery is a paid special service — WITHOUT this block the
+        // label books the standard Mon–Fri commitment (the original bug: quoted
+        // Saturday, label printed Monday). FedEx prints a big SAT box on the label.
+        ...(saturdayEligible
+          ? { shipmentSpecialServices: { specialServiceTypes: ['SATURDAY_DELIVERY'] } }
+          : {}),
         shippingChargesPayment: {
           paymentType: 'SENDER',
           payor: {
@@ -115,12 +155,18 @@ export async function POST(req: NextRequest) {
               units: 'LB',
               value: Number(shipment.weightLbs),
             },
-            dimensions: {
-              length: Number(shipment.lengthIn),
-              width: Number(shipment.widthIn),
-              height: Number(shipment.heightIn),
-              units: 'IN',
-            },
+            // Dimensions only for our own packaging — FedEx-branded packaging
+            // (envelope) has known dimensions; sending ours can reject/mis-rate.
+            ...(fedexPackaging === 'YOUR_PACKAGING'
+              ? {
+                  dimensions: {
+                    length: Number(shipment.lengthIn),
+                    width: Number(shipment.widthIn),
+                    height: Number(shipment.heightIn),
+                    units: 'IN',
+                  },
+                }
+              : {}),
             ...declaredValue,
           },
         ],

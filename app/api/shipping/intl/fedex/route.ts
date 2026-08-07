@@ -4,6 +4,7 @@ import { getFedexToken } from '@/lib/carrierTokens';
 import { fedexTransitToDays, formatDeliveryDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
 import { fedexCustomsClearanceDetail, fedexTotalCustomsValue } from '@/lib/shippingIntl';
+import { localDateStamp } from '@/lib/localDate';
 import type { CustomsInfo } from '@/app/admin/types/shippingIntl';
 
 // International FedEx rate quote. Separate from the domestic route so a change
@@ -40,7 +41,9 @@ export async function POST(req: NextRequest) {
     requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn };
 
     const token = await getFedexToken();
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    // Store-local date (America/Chicago) — UTC would roll past midnight at 7 pm
+    // local and shift the committed delivery date. See lib/localDate.ts.
+    const today = localDateStamp(); // YYYY-MM-DD
 
     // FedEx REQUIRES customsClearanceDetail for international rating. The customs
     // step happens after rate selection, so synthesize a minimal declaration

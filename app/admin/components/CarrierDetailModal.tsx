@@ -9,6 +9,8 @@ interface Props {
   rate: ShippingRate;
   /** Current declared value from the shipment form */
   declaredValueUSD: number;
+  /** Packaging from the shipment form — FedEx Envelope caps declared value at $100 */
+  packaging?: string;
   customerName: string;
   customerEmail: string;
   onConfirm: (selected: Pick<SelectedRate, 'insurance'>) => void;
@@ -29,14 +31,16 @@ export default function CarrierDetailModal({
   carrier,
   rate,
   declaredValueUSD,
+  packaging,
   customerName,
   customerEmail,
   onConfirm,
   onClose,
 }: Props) {
   const meta = CARRIER_META[carrier];
-  // Maximum declared value UPS/FedEx will cover for this service (FedEx Ground: $1,000).
-  const cap = maxDeclaredValue(carrier, rate.serviceName);
+  // Maximum declared value UPS/FedEx will cover for this service
+  // (FedEx Ground: $1,000; FedEx Envelope: $100).
+  const cap = maxDeclaredValue(carrier, rate.serviceName, packaging);
   const groundCapped = carrier === 'fedex' && isFedexGround(rate.serviceName);
 
   const [insEnabled, setInsEnabled] = useState(declaredValueUSD > 0);

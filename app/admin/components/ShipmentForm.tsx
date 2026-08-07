@@ -71,6 +71,7 @@ const DEFAULTS: ShipmentInput = {
   lengthIn: 12,
   widthIn: 9,
   heightIn: 6,
+  packaging: 'YOUR_PACKAGING',
   declaredValueUSD: 0,
   customerName: '',
   customerPhone: '',
@@ -682,6 +683,17 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
       {/* ── Package dimensions ── */}
       <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
         <div>
+          <label className={lbl}>Packaging</label>
+          <select
+            className={input}
+            value={form.packaging ?? 'YOUR_PACKAGING'}
+            onChange={(e) => set('packaging', e.target.value as ShipmentInput['packaging'])}
+          >
+            <option value="YOUR_PACKAGING">Own box</option>
+            <option value="FEDEX_ENVELOPE">FedEx Envelope</option>
+          </select>
+        </div>
+        <div>
           <label className={lbl}>Weight (lbs)</label>
           <input
             className={input}
@@ -693,42 +705,48 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
             required
           />
         </div>
-        <div>
-          <label className={lbl}>Length (in)</label>
-          <input
-            className={input}
-            type="number"
-            min="1"
-            step="0.5"
-            value={form.lengthIn}
-            onChange={(e) => set('lengthIn', parseFloat(e.target.value) || 0)}
-            required
-          />
-        </div>
-        <div>
-          <label className={lbl}>Width (in)</label>
-          <input
-            className={input}
-            type="number"
-            min="1"
-            step="0.5"
-            value={form.widthIn}
-            onChange={(e) => set('widthIn', parseFloat(e.target.value) || 0)}
-            required
-          />
-        </div>
-        <div>
-          <label className={lbl}>Height (in)</label>
-          <input
-            className={input}
-            type="number"
-            min="1"
-            step="0.5"
-            value={form.heightIn}
-            onChange={(e) => set('heightIn', parseFloat(e.target.value) || 0)}
-            required
-          />
-        </div>
+        {/* FedEx-branded packaging has known dimensions — hide the inputs
+            (values are retained in state for switching back to Own box). */}
+        {form.packaging !== 'FEDEX_ENVELOPE' && (
+          <>
+            <div>
+              <label className={lbl}>Length (in)</label>
+              <input
+                className={input}
+                type="number"
+                min="1"
+                step="0.5"
+                value={form.lengthIn}
+                onChange={(e) => set('lengthIn', parseFloat(e.target.value) || 0)}
+                required
+              />
+            </div>
+            <div>
+              <label className={lbl}>Width (in)</label>
+              <input
+                className={input}
+                type="number"
+                min="1"
+                step="0.5"
+                value={form.widthIn}
+                onChange={(e) => set('widthIn', parseFloat(e.target.value) || 0)}
+                required
+              />
+            </div>
+            <div>
+              <label className={lbl}>Height (in)</label>
+              <input
+                className={input}
+                type="number"
+                min="1"
+                step="0.5"
+                value={form.heightIn}
+                onChange={(e) => set('heightIn', parseFloat(e.target.value) || 0)}
+                required
+              />
+            </div>
+          </>
+        )}
         <div>
           <label className={lbl}>Value ($)</label>
           <input
@@ -741,6 +759,13 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
           />
         </div>
       </div>
+      {form.packaging === 'FEDEX_ENVELOPE' && (
+        <p className="mt-2 rounded-lg border border-[#FF6600]/30 bg-[#FF6600]/5 px-3 py-2 text-[11px] text-navy/70">
+          <strong>FedEx Envelope</strong> — FedEx Express services only; the envelope rate
+          applies up to 8 oz (heavier is billed at Pak rates). Declared value is capped at
+          $100. Other carriers still quote as a parcel.
+        </p>
+      )}
 
       {/* ── Sender info (paying customer) ── */}
       <div className="mt-5 mb-2 flex items-center justify-between gap-3">

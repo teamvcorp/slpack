@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
-import { formatDeliveryDate } from '@/lib/transit';
+import { formatDeliveryDate, isSaturdayDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
 
 const ROUTE = 'shipping/ups';
@@ -54,7 +54,14 @@ export async function POST(req: NextRequest) {
     const pickupDate = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
     const pickupTime = `${pad(now.getHours())}${pad(now.getMinutes())}`;
 
-    // Shoptimeintransit returns rates AND transit times for all available services.
+    // Shoptimeintransit returns rates AND transit times for all available
+    // services — INCLUDING Saturday-delivery variants as DUPLICATE service
+    // rows (verified in sandbox 2026-08-07): the Saturday row carries
+    // TimeInTransit.ServiceSummary.SaturdayDelivery === '1', a Saturday
+    // arrival date, and the Saturday surcharge already inside the rated total
+    // (ServiceOptionsCharges). No SaturdayDeliveryIndicator is needed when
+    // RATING — the indicator IS required on the LABEL request or UPS books
+    // Mon–Fri delivery. See saturday_delivery_notes.md.
     const payload = {
       RateRequest: {
         Request: {
@@ -168,16 +175,26 @@ export async function POST(req: NextRequest) {
 
       const daysStr = estArrival?.BusinessDaysInTransit ?? guarantee?.BusinessDaysInTransit;
       const estimatedDays = daysStr ? parseInt(daysStr) || null : null;
-      const deliveryDate = formatDeliveryDate(
-        estArrival?.Arrival?.Date ?? guarantee?.DeliveryByTime
-      );
+      const arrivalRaw = estArrival?.Arrival?.Date ?? null;
+      const deliveryDate = formatDeliveryDate(arrivalRaw ?? guarantee?.DeliveryByTime);
+
+      // Saturday-delivery variant? UPS marks the duplicate row explicitly;
+      // the arrival-weekday check is belt-and-braces so a mislabeled row can
+      // never charge a Saturday surcharge for a weekday arrival.
+      const saturdayDelivery =
+        (summary?.SaturdayDelivery as unknown) === '1' && isSaturdayDate(arrivalRaw);
+      const baseName = SERVICE_NAMES[code] ?? `UPS Service ${code}`;
 
       return {
         serviceCode: code,
-        serviceName: SERVICE_NAMES[code] ?? `UPS Service ${code}`,
+        // Suffix appended HERE ONLY — cart, receipts, and the shipment log all
+        // display serviceName, so they inherit it. Don't re-append downstream.
+        serviceName: saturdayDelivery ? `${baseName} — Saturday Delivery` : baseName,
         totalChargeUSD: parseFloat(negotiated ?? charges?.MonetaryValue ?? '0'),
         estimatedDays,
         deliveryDate,
+        // The Saturday surcharge is already inside the rated total.
+        ...(saturdayDelivery ? { saturdayDelivery: true } : {}),
       };
     });
 

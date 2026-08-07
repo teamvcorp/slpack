@@ -32,9 +32,16 @@ export function isFedexGround(serviceName: string): boolean {
 
 /**
  * Maximum declared value allowed for a carrier/service.
- * FedEx Ground & Home Delivery cap at $1,000; everything else at $50,000.
+ * FedEx Ground & Home Delivery cap at $1,000; FedEx Envelope (FedEx-branded
+ * document packaging) caps at $100 per the FedEx Service Guide (see
+ * fedex_packaging_notes.md); everything else at $50,000.
  */
-export function maxDeclaredValue(carrier: string, serviceName: string): number {
+export function maxDeclaredValue(
+  carrier: string,
+  serviceName: string,
+  packaging?: string
+): number {
+  if (carrier === 'fedex' && packaging === 'FEDEX_ENVELOPE') return 100;
   if (carrier === 'fedex' && isFedexGround(serviceName)) return 1000;
   return 50000;
 }

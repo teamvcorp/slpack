@@ -4,6 +4,7 @@ import { getFedexToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
 import { fedexCustomsClearanceDetail, fedexTotalCustomsValue } from '@/lib/shippingIntl';
+import { localDateStamp } from '@/lib/localDate';
 import type { IntlShipmentInput, IntlDocument } from '@/app/admin/types/shippingIntl';
 
 // International FedEx label + commercial invoice. Separate from the domestic
@@ -62,7 +63,9 @@ export async function POST(req: NextRequest) {
 
     const token = await getFedexToken();
     const accountNumber = process.env.FEDEX_ACCOUNT_NUMBER;
-    const today = new Date().toISOString().split('T')[0];
+    // Store-local date — see lib/localDate.ts (UTC rolled the ship date forward
+    // after 7 pm local, shifting the carrier's delivery commitment).
+    const today = localDateStamp();
 
     const declaredValue =
       insurance?.enabled && Number(insurance?.valueUSD) > 0
