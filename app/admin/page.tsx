@@ -16,6 +16,13 @@ const TILES = [
     badge: '4 carriers',
   },
   {
+    href: '/admin/box-size',
+    icon: '📐',
+    title: 'Box Size Calculator',
+    desc: 'Size the box before you pack it — check length + girth, cubic volume and weight against the UPS and FedEx surcharge thresholds.',
+    badge: 'Surcharge check',
+  },
+  {
     href: '/admin/dropoff',
     icon: '📥',
     title: 'Drop-off Scan',
