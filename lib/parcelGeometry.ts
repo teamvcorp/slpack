@@ -39,6 +39,8 @@ export interface ParcelMeasure {
   lengthPlusGirthIn: number;
   /** L × W × H. Carriers added cubic-volume triggers in Jan 2026. */
   cubicIn: number;
+  /** 2(LW + LH + WH) — outside surface. Drives the packing charge. */
+  surfaceAreaIn2: number;
   /** ceil(cubic / divisor), never negative. */
   dimWeightLbs: number;
 }
@@ -81,6 +83,18 @@ export function cubicIn(dims: Dims): number {
 }
 
 /**
+ * Outside surface area in square inches: 2(LW + LH + WH).
+ *
+ * This is the corrugated needed to make the box and the wrap needed to line it,
+ * so it is the basis for the shop's packing charge (see lib/boxOptimizer.ts
+ * computePackingPrice). Orientation-invariant, like every other measure here.
+ */
+export function surfaceAreaIn2(dims: Dims): number {
+  const [a, b, c] = sortDimsDesc(dims);
+  return 2 * (a * b + a * c + b * c);
+}
+
+/**
  * Dimensional weight, rounded UP to the next whole pound.
  * Billed weight is max(actual, dim) — that comparison lives in boxOptimizer.
  */
@@ -104,6 +118,7 @@ export function measureParcel(dims: Dims, divisor: number = DIM_DIVISOR): Parcel
     girthIn: girth,
     lengthPlusGirthIn: longest + girth,
     cubicIn: cubic,
+    surfaceAreaIn2: 2 * (longest * second + longest * shortest + second * shortest),
     dimWeightLbs: Math.ceil(cubic / d),
   };
 }

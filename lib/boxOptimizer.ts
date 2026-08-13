@@ -23,6 +23,7 @@ import {
   measureParcel,
   roundDimsForRating,
   hasUsableDims,
+  surfaceAreaIn2,
   diagonalIn,
 } from './parcelGeometry';
 import { localDateStamp } from './localDate';
@@ -151,6 +152,114 @@ export const PACKING_PRESETS: Readonly<Record<PackingProfile, PackingPreset>> = 
 
 /** Absolute minimum clearance per side, even for a rigid item with no packing. */
 export const MIN_CLEARANCE_IN = 0.5;
+
+// ────────────────────────── Packing charge (shop pricing) ──────────────────
+//
+// The shop bills packing labour + materials by the OUTSIDE SURFACE AREA of the
+// finished box — 2(LW + LH + WH) — not by volume or weight. One area drives
+// both charges, which keeps it explainable at the counter: "your box is N
+// square inches, we charge X a square inch."
+//
+// Shop rates set by the owner 2026-08-13. These are business pricing, not
+// carrier tariffs — they do not expire with the January surcharge updates.
+
+/**
+ * Editable shop pricing. Staff change these on the Settings page; they persist
+ * in slpack.settings (_id 'packingPricing') so every terminal agrees. The
+ * defaults below are the fallback when nothing is saved yet.
+ */
+export interface PackingRates {
+  /** Material rate per square inch, by protection level. */
+  light: number;
+  standard: number;
+  fragile: number;
+  /** Added per square inch for building the box. Always applied — if the box is
+   *  being sized here, the shop is making it. */
+  box: number;
+  /** Retail = cost × this. Staff see both so they never quote the cost figure. */
+  retailMultiplier: number;
+}
+
+export const DEFAULT_PACKING_RATES: Readonly<PackingRates> = {
+  light: 0.02,    // bubble wrap only
+  standard: 0.03, // bubble + foam
+  fragile: 0.04,  // full fragile build (foam board + bubble)
+  box: 0.02,
+  retailMultiplier: 1.2,
+};
+
+/** Clamp saved settings into a sane range — never trust a stored value blindly. */
+export function normalizePackingRates(input: unknown): PackingRates {
+  const raw = (input ?? {}) as Partial<Record<keyof PackingRates, unknown>>;
+  // null/undefined/'' must fall back, NOT coerce: Number(null) is 0, which would
+  // silently make a missing field free rather than restoring its default.
+  const absent = (v: unknown) => v === null || v === undefined || v === '';
+  const rate = (v: unknown, fallback: number) => {
+    if (absent(v)) return fallback;
+    const n = Number(v);
+    // A dollar a square inch is already absurd; anything past that is a typo.
+    return Number.isFinite(n) && n >= 0 && n <= 1 ? n : fallback;
+  };
+  const mult = absent(raw.retailMultiplier) ? NaN : Number(raw.retailMultiplier);
+  return {
+    light: rate(raw.light, DEFAULT_PACKING_RATES.light),
+    standard: rate(raw.standard, DEFAULT_PACKING_RATES.standard),
+    fragile: rate(raw.fragile, DEFAULT_PACKING_RATES.fragile),
+    box: rate(raw.box, DEFAULT_PACKING_RATES.box),
+    retailMultiplier:
+      Number.isFinite(mult) && mult >= 1 && mult <= 20
+        ? mult
+        : DEFAULT_PACKING_RATES.retailMultiplier,
+  };
+}
+
+export interface PackingPrice {
+  surfaceAreaIn2: number;
+  materialRatePerSqIn: number;
+  boxRatePerSqIn: number;
+  ratePerSqIn: number;
+  materialCostUSD: number;
+  boxCostUSD: number;
+  /** What the job costs the shop — internal figure, never quoted. */
+  costUSD: number;
+  /** What the customer pays. */
+  retailUSD: number;
+  /** The multiplier actually applied, so the UI can label the retail figure. */
+  retailMultiplier: number;
+}
+
+/**
+ * Packing charge for a finished box.
+ *
+ * cost   = surface area × (material rate + box rate)
+ * retail = cost × retailMultiplier
+ *
+ * Rates come from the shop's saved settings; omit to use DEFAULT_PACKING_RATES.
+ */
+export function computePackingPrice(
+  gross: Dims,
+  profile: PackingProfile,
+  rates: PackingRates = DEFAULT_PACKING_RATES
+): PackingPrice {
+  const area = surfaceAreaIn2(gross);
+  const materialRate = rates[profile] ?? rates.standard;
+
+  const materialCost = cents(area * materialRate);
+  const boxCost = cents(area * rates.box);
+  const cost = cents(materialCost + boxCost);
+
+  return {
+    surfaceAreaIn2: Math.round(area * 100) / 100,
+    materialRatePerSqIn: materialRate,
+    boxRatePerSqIn: rates.box,
+    ratePerSqIn: cents(materialRate + rates.box),
+    materialCostUSD: materialCost,
+    boxCostUSD: boxCost,
+    costUSD: cost,
+    retailUSD: cents(cost * rates.retailMultiplier),
+    retailMultiplier: rates.retailMultiplier,
+  };
+}
 
 /**
  * Every 1" of uniform per-side padding adds 10" to length + girth.
@@ -367,6 +476,8 @@ export interface BoxCalcInput {
   nonStandardPackaging?: boolean;
   residential?: boolean;
   onDate?: Date;
+  /** Shop packing rates from Settings. Omit to use DEFAULT_PACKING_RATES. */
+  rates?: PackingRates;
 }
 
 export interface BoxCalcResult {
@@ -377,6 +488,8 @@ export interface BoxCalcResult {
   /** THE ANSWER: required outside box dimensions. */
   grossDims: Dims;
   grossMeasure: ParcelMeasure;
+  /** Shop packing charge for this box — cost and retail. */
+  packingPrice: PackingPrice;
   carriers: Record<ParcelCarrier, CarrierAssessment>;
   /** Worst class across carriers — drives the headline badge. */
   worstClass: SizeClass;
@@ -1113,6 +1226,11 @@ export function calculateBox(input: BoxCalcInput): BoxCalcResult {
     packing,
     grossDims: grossDims(input.item, packing.thicknessIn),
     grossMeasure: EMPTY_MEASURE,
+    packingPrice: computePackingPrice(
+      grossDims(input.item, packing.thicknessIn),
+      input.profile,
+      input.rates
+    ),
     isPeak: peak,
     feeScheduleYear: FEE_SCHEDULE_YEAR,
   };
@@ -1153,6 +1271,7 @@ export function calculateBox(input: BoxCalcInput): BoxCalcResult {
     ok: true,
     grossDims: gross,
     grossMeasure,
+    packingPrice: computePackingPrice(gross, input.profile, input.rates),
     carriers,
     worstClass: worstClassOf(carriers),
     warnings: thresholdWarnings(grossMeasure, carriers, packing, measureParcel(input.item)),

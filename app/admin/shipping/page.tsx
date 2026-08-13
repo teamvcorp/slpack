@@ -6,6 +6,7 @@ import { stashShippingCart } from '@/lib/comboHandoff';
 import ShipmentForm from '../components/ShipmentForm';
 import FedExPanel from '../components/carriers/FedExPanel';
 import UPSPanel from '../components/carriers/UPSPanel';
+import USPSPanel from '../components/carriers/USPSPanel';
 import CarrierDetailModal from '../components/CarrierDetailModal';
 import StripeCheckout from '../components/StripeCheckout';
 import ShippingLabelModal from '../components/ShippingLabelModal';
@@ -147,9 +148,11 @@ export default function ShippingComparisonPage() {
     setAnyLoading(true);
 
     // Active carriers fetched concurrently — each panel updates independently
+    // and one carrier failing never blanks the others.
     await Promise.all([
       fetchCarrier('fedex', shipment),
       fetchCarrier('ups', shipment),
+      fetchCarrier('usps', shipment),
     ]);
 
     setAnyLoading(false);
@@ -260,6 +263,11 @@ export default function ShippingComparisonPage() {
         <UPSPanel
           result={results.ups}
           onSelectRate={(r) => handleSelectRate('ups', r)}
+          selectedRateCode={null}
+        />
+        <USPSPanel
+          result={results.usps}
+          onSelectRate={(r) => handleSelectRate('usps', r)}
           selectedRateCode={null}
         />
       </div>

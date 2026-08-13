@@ -251,7 +251,51 @@ annual verification and reconcile.
 
 ---
 
-## 9. ZIP → city/state lookup (`/api/shipping/zip-lookup`)
+## 9. Shop packing charge (business pricing, not a carrier tariff)
+
+Unlike everything above, these do **not** expire with the January carrier updates.
+
+**Staff-editable at `/admin/settings` → Packing pricing.** Saved to `slpack.settings` (`_id:
+'packingPricing'`) via `/api/admin/settings/packing-pricing` (GET/PUT/DELETE, DELETE resets). Every
+terminal reads the same values. The figures below are the shipped defaults
+(`DEFAULT_PACKING_RATES` in `lib/boxOptimizer.ts`), used until something is saved.
+
+Values are re-validated on read as well as write (`normalizePackingRates`) — rates must be $0–$1 per
+sq in and the multiplier 1–20, so a doc edited straight in the database cannot produce a nonsense
+counter quote. Missing or null fields fall back to defaults rather than coercing to zero.
+
+Billed on the **outside surface area of the finished box**: `2 × (LW + LH + WH)`. One area drives both
+charges, which keeps it explainable — "your box is N square inches, we charge X a square inch."
+
+| Component | Default rate per sq in |
+|---|---|
+| Light packing (bubble wrap only) | 2¢ |
+| Standard packing (bubble + foam) | 3¢ |
+| Fragile packing (foam board + bubble) | 4¢ |
+| Box construction — **always applied** | +2¢ |
+| Retail multiplier | **1.2×** |
+
+```
+cost   = surface area × (material rate + box rate)
+retail = cost × retailMultiplier
+```
+
+Both figures show in the UI: staff need cost for margin, retail is the only number a customer hears.
+
+Worked example at the defaults — a 12 × 9 × 6 box is 468 sq in:
+
+| Level | Rate | Cost | Customer |
+|---|---|---|---|
+| Light | 4¢ | $18.72 | $22.46 |
+| Standard | 5¢ | $23.40 | $28.08 |
+| Fragile | 6¢ | $28.08 | $33.70 |
+
+**Note the compounding.** Surface area grows roughly with the square of padding, so thickness moves this
+charge fast — far more than the multiplier does. A 10 × 7 × 4 item at the fragile 2.5"/side build becomes
+a 15 × 12 × 9 box (846 sq in, **$60.91**) against $26.35 for the same item at 0.5"/side. The Settings
+card previews a 12 × 9 × 6 box live as rates are typed, so the effect of a change is visible before saving.
+
+## 10. ZIP → city/state lookup (`/api/shipping/zip-lookup`)
 
 UPS returns **111539 / 111542 "Invalid Destination"** for ZIPs it cannot resolve from the postal code
 alone (78133 Canyon Lake TX is the known production case; see `app/api/shipping/ups/route.ts`). Supplying
