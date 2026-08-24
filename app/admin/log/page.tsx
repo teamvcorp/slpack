@@ -403,6 +403,22 @@ export default function ShipmentLogPage() {
                             {entry.insuranceUSD > 0 && (
                               <p className="text-xs text-navy/40">+${entry.insuranceUSD.toFixed(2)} ins.</p>
                             )}
+                            {/* Real margin: what the customer paid minus what the
+                                carrier actually billed for the label. Older entries
+                                predate cost capture and simply show nothing. Note
+                                this excludes carrier post-audit adjustments
+                                (reweigh, dim-weight), which arrive on the invoice. */}
+                            {!isVoided && entry.carrierCostUSD !== undefined && (() => {
+                              const margin = entry.totalUSD - entry.carrierCostUSD;
+                              return (
+                                <p
+                                  className={`text-xs ${margin < 0 ? 'font-semibold text-red-600' : 'text-navy/40'}`}
+                                  title={`Carrier cost $${entry.carrierCostUSD.toFixed(2)}`}
+                                >
+                                  {margin < 0 ? '−' : '+'}${Math.abs(margin).toFixed(2)} margin
+                                </p>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex justify-end gap-2">

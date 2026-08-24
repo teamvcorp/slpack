@@ -5,6 +5,7 @@ import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
 import { fedexCustomsClearanceDetail, fedexTotalCustomsValue } from '@/lib/shippingIntl';
 import { localDateStamp } from '@/lib/localDate';
+import { fedexActualCostUSD } from '@/lib/carrierCost';
 import type { IntlShipmentInput, IntlDocument } from '@/app/admin/types/shippingIntl';
 
 // International FedEx label + commercial invoice. Separate from the domestic
@@ -237,6 +238,8 @@ export async function POST(req: NextRequest) {
       labelBase64,
       labelMimeType: 'application/pdf',
       documents,
+      // What FedEx is actually billing us for this label — null when unrated.
+      carrierCostUSD: fedexActualCostUSD(data),
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

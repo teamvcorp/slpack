@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
     const pricedInsurance = priceInsurance(insurance, carrier, serviceName, shipment?.packaging);
     const insuranceChargeUSD = pricedInsurance.premiumUSD;
 
-    // Total rebuilt from its parts; dutiesUSD is prepaid DDP, intl-only.
-    const chargeTotalUSD =
+    // Expected total, for the comparison below; dutiesUSD is prepaid DDP, intl-only.
+    const expectedTotalUSD =
       Math.round(
         (Number(shippingUSD) +
           insuranceChargeUSD +
@@ -52,8 +52,13 @@ export async function POST(req: NextRequest) {
           100
       ) / 100;
 
-    const clientInsuranceUSD = Number(insuranceUSD ?? 0);
-    if (Math.abs(clientInsuranceUSD - insuranceChargeUSD) > 0.01) {
+    // Log money collected, not a recomputed price — see /api/shipping/submit.
+    const num = (v: unknown, fallback: number) =>
+      Number.isFinite(Number(v)) ? Number(v) : fallback;
+    const collectedInsuranceUSD = num(insuranceUSD, insuranceChargeUSD);
+    const collectedTotalUSD = num(totalUSD, expectedTotalUSD);
+
+    if (Math.abs(collectedInsuranceUSD - insuranceChargeUSD) > 0.01) {
       await appendError({
         id: randomUUID(),
         timestamp: new Date().toISOString(),
@@ -61,15 +66,17 @@ export async function POST(req: NextRequest) {
         carrier,
         status: 200,
         message:
-          `Insurance premium mismatch — client sent $${clientInsuranceUSD.toFixed(2)}, ` +
-          `server priced $${insuranceChargeUSD.toFixed(2)}. Logged the server figure.`,
+          `Insurance underpriced by the client — collected $${collectedInsuranceUSD.toFixed(2)}, ` +
+          `should have been $${insuranceChargeUSD.toFixed(2)}. Most likely a browser tab left ` +
+          `open across a deploy; the customer was charged the lower amount.`,
         requestSummary: {
           serviceName,
           declaredValueUSD: pricedInsurance.valueUSD,
-          clientInsuranceUSD,
-          serverInsuranceUSD: insuranceChargeUSD,
-          clientTotalUSD: Number(totalUSD ?? 0),
-          serverTotalUSD: chargeTotalUSD,
+          collectedInsuranceUSD,
+          expectedInsuranceUSD: insuranceChargeUSD,
+          collectedTotalUSD,
+          expectedTotalUSD,
+          shortfallUSD: Math.round((expectedTotalUSD - collectedTotalUSD) * 100) / 100,
         },
       });
     }
@@ -80,6 +87,8 @@ export async function POST(req: NextRequest) {
     let labelMimeType: string | null = null;
     let labelError: string | null = null;
     let documents: IntlDocument[] = [];
+    // Actual carrier charge for the label, when the carrier reports one.
+    let carrierCostUSD: number | null = null;
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       labelError = null;
@@ -99,6 +108,9 @@ export async function POST(req: NextRequest) {
           labelBase64 = labelData.labelBase64 ?? null;
           labelMimeType = labelData.labelMimeType ?? null;
           documents = Array.isArray(labelData.documents) ? labelData.documents : [];
+          carrierCostUSD = Number.isFinite(Number(labelData.carrierCostUSD))
+            ? Number(labelData.carrierCostUSD)
+            : null;
           break;
         }
         const detail = labelData.details ? ` — ${labelData.details}` : '';
@@ -120,11 +132,12 @@ export async function POST(req: NextRequest) {
       destState: shipment.destState ?? '',
       weightLbs: shipment.weightLbs,
       shippingUSD: Number(shippingUSD),
-      insuranceUSD: insuranceChargeUSD,
+      insuranceUSD: collectedInsuranceUSD,
       packingFeeUSD: Number(packingFeeUSD ?? 0),
       dutiesUSD: Number(dutiesUSD ?? 0),
       cardFeeUSD: Number(cardFeeUSD) > 0 ? Number(cardFeeUSD) : undefined,
-      totalUSD: chargeTotalUSD,
+      totalUSD: collectedTotalUSD,
+      carrierCostUSD: carrierCostUSD ?? undefined,
       trackingNumber,
       labelBase64,
       customerName: shipment.customerName ?? '',

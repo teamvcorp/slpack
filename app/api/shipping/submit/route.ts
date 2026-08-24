@@ -38,10 +38,8 @@ export async function POST(req: NextRequest) {
     const pricedInsurance = priceInsurance(insurance, carrier, serviceName, shipment?.packaging);
     const insuranceChargeUSD = pricedInsurance.premiumUSD;
 
-    // Recompute the total from its parts rather than trusting the client's sum.
-    // shippingUSD stays as quoted — a carrier rate cannot be re-derived after
-    // the fact without a fresh quote that may legitimately differ.
-    const chargeTotalUSD =
+    // What the server says the premium *should* have been, for comparison below.
+    const expectedTotalUSD =
       Math.round(
         (Number(shippingUSD) +
           insuranceChargeUSD +
@@ -50,12 +48,18 @@ export async function POST(req: NextRequest) {
           100
       ) / 100;
 
-    // Payment is captured before this route runs, so a mismatch can't be undone
-    // by rejecting the request — record it instead. A stale client build or a
-    // tampered payload then shows up in the error log rather than silently
-    // under-charging, and the log/receipt still carry the server's figures.
-    const clientInsuranceUSD = Number(insuranceUSD ?? 0);
-    if (Math.abs(clientInsuranceUSD - insuranceChargeUSD) > 0.01) {
+    // The shipment log is the revenue book (/api/reports/sales sums totalUSD), so
+    // it records MONEY COLLECTED, not a recomputed price. Payment is captured
+    // before this route runs: writing the server's figure here when the two
+    // disagree would overstate revenue and break reconciliation against the
+    // Stripe payout. The server's price goes in the error log instead, so the
+    // gap is visible and chaseable without corrupting the books.
+    const num = (v: unknown, fallback: number) =>
+      Number.isFinite(Number(v)) ? Number(v) : fallback;
+    const collectedInsuranceUSD = num(insuranceUSD, insuranceChargeUSD);
+    const collectedTotalUSD = num(totalUSD, expectedTotalUSD);
+
+    if (Math.abs(collectedInsuranceUSD - insuranceChargeUSD) > 0.01) {
       await appendError({
         id: randomUUID(),
         timestamp: new Date().toISOString(),
@@ -63,15 +67,17 @@ export async function POST(req: NextRequest) {
         carrier,
         status: 200,
         message:
-          `Insurance premium mismatch — client sent $${clientInsuranceUSD.toFixed(2)}, ` +
-          `server priced $${insuranceChargeUSD.toFixed(2)}. Logged the server figure.`,
+          `Insurance underpriced by the client — collected $${collectedInsuranceUSD.toFixed(2)}, ` +
+          `should have been $${insuranceChargeUSD.toFixed(2)}. Most likely a browser tab left ` +
+          `open across a deploy; the customer was charged the lower amount.`,
         requestSummary: {
           serviceName,
           declaredValueUSD: pricedInsurance.valueUSD,
-          clientInsuranceUSD,
-          serverInsuranceUSD: insuranceChargeUSD,
-          clientTotalUSD: Number(totalUSD ?? 0),
-          serverTotalUSD: chargeTotalUSD,
+          collectedInsuranceUSD,
+          expectedInsuranceUSD: insuranceChargeUSD,
+          collectedTotalUSD,
+          expectedTotalUSD,
+          shortfallUSD: Math.round((expectedTotalUSD - collectedTotalUSD) * 100) / 100,
         },
       });
     }
@@ -84,6 +90,8 @@ export async function POST(req: NextRequest) {
     let labelBase64: string | null = null;
     let labelMimeType: string | null = null;
     let labelError: string | null = null;
+    // Actual carrier charge for the label, when the carrier reports one.
+    let carrierCostUSD: number | null = null;
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       labelError = null;
@@ -111,6 +119,9 @@ export async function POST(req: NextRequest) {
           trackingNumber = labelData.trackingNumber ?? 'PENDING';
           labelBase64 = labelData.labelBase64 ?? null;
           labelMimeType = labelData.labelMimeType ?? null;
+          carrierCostUSD = Number.isFinite(Number(labelData.carrierCostUSD))
+            ? Number(labelData.carrierCostUSD)
+            : null;
           break;
         }
         const detail = labelData.details ? ` — ${labelData.details}` : '';
@@ -132,10 +143,11 @@ export async function POST(req: NextRequest) {
       destState: shipment.destState ?? '',
       weightLbs: shipment.weightLbs,
       shippingUSD: Number(shippingUSD),
-      insuranceUSD: insuranceChargeUSD,
+      insuranceUSD: collectedInsuranceUSD,
       packingFeeUSD: Number(packingFeeUSD ?? 0),
       cardFeeUSD: Number(cardFeeUSD) > 0 ? Number(cardFeeUSD) : undefined,
-      totalUSD: chargeTotalUSD,
+      totalUSD: collectedTotalUSD,
+      carrierCostUSD: carrierCostUSD ?? undefined,
       trackingNumber,
       labelBase64,
       customerName: shipment.customerName ?? '',

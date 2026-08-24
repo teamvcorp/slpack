@@ -10,7 +10,9 @@ import USPSPanel from '../components/carriers/USPSPanel';
 import CarrierDetailModal from '../components/CarrierDetailModal';
 import StripeCheckout from '../components/StripeCheckout';
 import ShippingLabelModal from '../components/ShippingLabelModal';
+import StaleSessionBanner from '../components/StaleSessionBanner';
 import { retailPrice } from '@/lib/shippingPricing';
+import { isQuoteStale } from '@/lib/appVersion';
 import type {
   ShipmentInput,
   CarrierResult,
@@ -68,6 +70,10 @@ export default function ShippingComparisonPage() {
   const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
   const [formKey, setFormKey] = useState(0);
+  // Staleness guards — see lib/appVersion. quotedAt ages the rates out; buildId
+  // catches a tab still running the JavaScript from an earlier deploy.
+  const [quotedAt, setQuotedAt] = useState<number | null>(null);
+  const [serverBuildId, setServerBuildId] = useState<string | null>(null);
 
   const markLoading = useCallback((carrier: CarrierKey) => {
     setResults((prev) => ({
@@ -104,6 +110,7 @@ export default function ShippingComparisonPage() {
         body: JSON.stringify(shipment),
       });
       const data = await res.json();
+      if (typeof data.buildId === 'string') setServerBuildId(data.buildId);
       if (!res.ok || data.error) {
         setResult(carrier, [], String(data.error ?? `HTTP ${res.status}`));
       } else {
@@ -137,6 +144,7 @@ export default function ShippingComparisonPage() {
     if (hasCompared && rateSignature(shipment) !== comparedSigRef.current) {
       setHasCompared(false);
       setResults(INITIAL_RESULTS);
+      setQuotedAt(null);
     }
   }
 
@@ -144,6 +152,7 @@ export default function ShippingComparisonPage() {
     setCurrentShipment(shipment);
     comparedSigRef.current = rateSignature(shipment);
     setHasCompared(true);
+    setQuotedAt(Date.now());
     setModalStep(null);
     setAnyLoading(true);
 
@@ -160,6 +169,14 @@ export default function ShippingComparisonPage() {
 
   function handleSelectRate(carrier: CarrierKey, rate: ShippingRate) {
     if (!currentShipment) return;
+    // An aged-out quote may no longer cover our cost — drop it and make staff
+    // re-compare rather than letting a stale price into the cart.
+    if (isQuoteStale(quotedAt, Date.now())) {
+      setHasCompared(false);
+      setResults(INITIAL_RESULTS);
+      setQuotedAt(null);
+      return;
+    }
     // Customers are always charged retail (carrier cost × store markup).
     const chargeRate = { ...rate, totalChargeUSD: retailPrice(rate.totalChargeUSD) };
     setPreviewCarrier({ carrier, rate: chargeRate });
@@ -190,6 +207,7 @@ export default function ShippingComparisonPage() {
     setCurrentShipment(null);
     setAddressValidated(false);
     setHasCompared(false);
+    setQuotedAt(null);
     setFormKey((k) => k + 1);
   }
 
@@ -215,6 +233,7 @@ export default function ShippingComparisonPage() {
     setAddressValidated(false);
     setHasCompared(false);
     setResults(INITIAL_RESULTS);
+    setQuotedAt(null);
     setFormKey((k) => k + 1);
   }
 
@@ -248,6 +267,11 @@ export default function ShippingComparisonPage() {
         <span className="mt-1 shrink-0 rounded-full border border-navy/15 bg-cream px-4 py-1.5 text-xs font-semibold text-navy/50">
           Prices shown at cost and retail (+55%)
         </span>
+      </div>
+
+      {/* Out-of-date page / aged-out quote warnings */}
+      <div className="mb-4">
+        <StaleSessionBanner serverBuildId={serverBuildId} quotedAt={quotedAt} />
       </div>
 
       {/* Shipment form */}

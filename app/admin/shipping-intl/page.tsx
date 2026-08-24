@@ -8,7 +8,9 @@ import FedExPanel from '../components/carriers/FedExPanel';
 import UPSPanel from '../components/carriers/UPSPanel';
 import CarrierDetailModal from '../components/CarrierDetailModal';
 import StripeCheckout from '../components/StripeCheckout';
+import StaleSessionBanner from '../components/StaleSessionBanner';
 import { retailPrice } from '@/lib/shippingPricing';
+import { isQuoteStale } from '@/lib/appVersion';
 import type {
   ShipmentInput,
   CarrierResult,
@@ -43,6 +45,9 @@ export default function IntlShippingPage() {
   const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
   const [formKey, setFormKey] = useState(0);
+  // Staleness guards — see lib/appVersion (same rules as the domestic page).
+  const [quotedAt, setQuotedAt] = useState<number | null>(null);
+  const [serverBuildId, setServerBuildId] = useState<string | null>(null);
 
   const markLoading = useCallback((carrier: IntlCarrier) => {
     setResults((prev) => ({ ...prev, [carrier]: { ...prev[carrier], loading: true, error: null, rates: [] } }));
@@ -64,6 +69,7 @@ export default function IntlShippingPage() {
         body: JSON.stringify(shipment),
       });
       const data = await res.json();
+      if (typeof data.buildId === 'string') setServerBuildId(data.buildId);
       if (!res.ok || data.error) {
         setResult(carrier, [], String(data.error ?? `HTTP ${res.status}`));
       } else {
@@ -76,6 +82,7 @@ export default function IntlShippingPage() {
 
   async function handleCompare(shipment: ShipmentInput) {
     setCurrentShipment(shipment);
+    setQuotedAt(Date.now());
     setModalStep(null);
     setAnyLoading(true);
     await Promise.all([fetchCarrier('fedex', shipment), fetchCarrier('ups', shipment)]);
@@ -84,6 +91,12 @@ export default function IntlShippingPage() {
 
   function handleSelectRate(carrier: IntlCarrier, rate: ShippingRate) {
     if (!currentShipment) return;
+    // Aged-out quote — force a re-compare instead of carting a stale price.
+    if (isQuoteStale(quotedAt, Date.now())) {
+      setResults(INITIAL_RESULTS);
+      setQuotedAt(null);
+      return;
+    }
     const chargeRate = { ...rate, totalChargeUSD: retailPrice(rate.totalChargeUSD) };
     setPreviewCarrier({ carrier, rate: chargeRate });
     setPendingCustoms(null);
@@ -156,6 +169,10 @@ export default function IntlShippingPage() {
         <span className="mt-1 shrink-0 rounded-full border border-navy/15 bg-cream px-4 py-1.5 text-xs font-semibold text-navy/50">
           Prices shown at cost and retail (+55%)
         </span>
+      </div>
+
+      <div className="mb-4">
+        <StaleSessionBanner serverBuildId={serverBuildId} quotedAt={quotedAt} />
       </div>
 
       <IntlShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} />

@@ -4,6 +4,7 @@ import { getFedexToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
 import { localDateStamp } from '@/lib/localDate';
+import { fedexActualCostUSD } from '@/lib/carrierCost';
 
 const ROUTE = 'shipping/fedex/label';
 
@@ -224,7 +225,15 @@ export async function POST(req: NextRequest) {
       pkgDetails?.label?.encodedLabel ??
       null;
 
-    return NextResponse.json({ trackingNumber, labelBase64, labelMimeType: 'application/pdf' });
+    // What FedEx is actually billing us for this label — null when unrated.
+    const carrierCostUSD = fedexActualCostUSD(data);
+
+    return NextResponse.json({
+      trackingNumber,
+      labelBase64,
+      labelMimeType: 'application/pdf',
+      carrierCostUSD,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return await logAndRespond({

@@ -137,7 +137,16 @@ export interface ShipmentLogEntry {
   dutiesUSD?: number;
   /** Credit-card processing surcharge added to this shipment's charge (card only). */
   cardFeeUSD?: number;
+  /** What the customer was actually charged (money collected), not a recomputed
+   *  price — revenue reports sum this, so it must reconcile with the Stripe
+   *  payout / till. Pricing disagreements are recorded in the error log instead. */
   totalUSD: number;
+  /** Actual negotiated carrier charge for this label, from the carrier's ship
+   *  response. Undefined when the carrier returned no rating (USPS and DHL label
+   *  responses don't carry one). Compare with shippingUSD for real margin — but
+   *  note carrier post-audit adjustments (reweigh, dim-weight, address
+   *  correction) land on the invoice days later and are NOT reflected here. */
+  carrierCostUSD?: number;
   trackingNumber: string | null;
   labelBase64: string | null;
   customerName: string;

@@ -3,6 +3,7 @@ import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
+import { upsActualCostUSD } from '@/lib/carrierCost';
 
 const ROUTE = 'shipping/ups/label';
 
@@ -198,7 +199,10 @@ export async function POST(req: NextRequest) {
 
     const labelMimeType = labelBase64 ? 'image/gif' : null;
 
-    return NextResponse.json({ trackingNumber, labelBase64, labelMimeType });
+    // What UPS is actually billing us for this label — null when unrated.
+    const carrierCostUSD = upsActualCostUSD(data);
+
+    return NextResponse.json({ trackingNumber, labelBase64, labelMimeType, carrierCostUSD });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return await logAndRespond({

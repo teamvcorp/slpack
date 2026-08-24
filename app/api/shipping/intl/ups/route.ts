@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { serverBuildId } from '@/lib/appVersion';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
@@ -185,7 +186,8 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ rates });
+    // buildId lets the page detect a tab left open across a deploy.
+    return NextResponse.json({ rates, buildId: serverBuildId() });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return await logAndRespond({

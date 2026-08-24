@@ -4,6 +4,7 @@ import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
 import { upsInternationalForms } from '@/lib/shippingIntl';
+import { upsActualCostUSD } from '@/lib/carrierCost';
 import type { IntlShipmentInput, IntlDocument } from '@/app/admin/types/shippingIntl';
 
 // International UPS label + commercial invoice (Paperless). Separate from the
@@ -234,6 +235,8 @@ export async function POST(req: NextRequest) {
       labelBase64,
       labelMimeType: labelBase64 ? 'image/gif' : null,
       documents,
+      // What UPS is actually billing us for this label — null when unrated.
+      carrierCostUSD: upsActualCostUSD(data),
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
