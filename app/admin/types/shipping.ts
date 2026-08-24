@@ -52,7 +52,42 @@ export interface ShippingRate {
    *  Must be forwarded to the label route or the label books standard
    *  (Mon–Fri) delivery. See saturday_delivery_notes.md. */
   saturdayDelivery?: boolean;
+  /** Which price book totalChargeUSD came from.
+   *
+   *  'negotiated' = our account rate, i.e. what the carrier actually bills us.
+   *  'published'  = the carrier returned no account rate and we fell back to the
+   *                 public list price, which can run far above our real cost.
+   *
+   *  This matters because the LABEL response always reports the negotiated figure
+   *  (lib/carrierCost.ts). When a quote is 'published' but the label bills
+   *  negotiated, retail is marked up off a number we never pay — an 8 lb Next Day
+   *  Air quoted at $120.79 list against a $74.89 account cost prices the customer
+   *  at 2.5x our cost instead of the intended 1.55x. Surfaced in the panels and
+   *  logged so the gap is measurable rather than silent. */
+  rateSource?: RateSource;
+  /** The carrier's PUBLISHED retail price for this service — what UPS/FedEx
+   *  would charge a customer walking into their own counter.
+   *
+   *  Kept because it is a hard reference point: our true cost can never exceed
+   *  it, so it both bounds what a shipment is really worth and gives staff a
+   *  competitive yardstick. It is also the fallback cost basis when the carrier
+   *  returns no account rate (see lib/carrierIncentive.ts).
+   *
+   *  Undefined for USPS and DHL, which return no list rate. */
+  listPriceUSD?: number;
+  /** What this shipment actually costs us — the figure our price is derived
+   *  from. Computed on the page after rates arrive (see lib/carrierIncentive.ts
+   *  costBasisUSD): the account rate when the carrier returned one, otherwise
+   *  list discounted by our configured incentive.
+   *
+   *  Set client-side rather than by the rate route so the panels, the detail
+   *  modal and the cart all price off ONE number — a panel showing a price the
+   *  modal disagrees with is worse than either being wrong alone. */
+  costBasisUSD?: number;
 }
+
+/** Which carrier price book a quote came from — see ShippingRate.rateSource. */
+export type RateSource = 'negotiated' | 'published';
 
 export type CarrierKey = 'fedex' | 'ups' | 'usps' | 'dhl';
 
@@ -81,6 +116,10 @@ export interface CartItem {
   /** International only: prepaid duties (DDP) collected from the customer,
    *  added to the charge total. Undefined for domestic — totals unaffected. */
   dutiesUSD?: number;
+  /** True when staff set the freight price by hand in CarrierDetailModal rather
+   *  than accepting the formula. Recorded so the margin report can separate
+   *  judgement calls from mispricing. */
+  priceOverridden?: boolean;
 }
 
 /** A printable document returned by a carrier (label, commercial invoice, …).
@@ -147,6 +186,18 @@ export interface ShipmentLogEntry {
    *  note carrier post-audit adjustments (reweigh, dim-weight, address
    *  correction) land on the invoice days later and are NOT reflected here. */
   carrierCostUSD?: number;
+  /** Which price book the QUOTE was based on (see ShippingRate.rateSource).
+   *  carrierCostUSD is always the negotiated figure, so a 'published' quote here
+   *  means retail was derived from a list price we never actually pay — the
+   *  margin report splits on this to size that gap per service. */
+  rateSource?: RateSource;
+  /** The carrier's published retail for this service at quote time — what
+   *  UPS/FedEx would have charged this customer directly. Lets the margin report
+   *  show where our price sat against the carrier's own counter. */
+  listPriceUSD?: number;
+  /** True when staff set the freight price by hand instead of taking the
+   *  formula. Separates a deliberate judgement call from a mispriced quote. */
+  priceOverridden?: boolean;
   trackingNumber: string | null;
   labelBase64: string | null;
   customerName: string;

@@ -88,7 +88,9 @@ export async function POST(req: NextRequest) {
         },
         pickupType: 'USE_SCHEDULED_PICKUP',
         shipDateStamp: today,
-        rateRequestType: ['ACCOUNT'],
+        // ACCOUNT + LIST returns both our negotiated rate and FedEx's published
+        // retail — see the domestic route and carrier_rate_pricing_notes.md.
+        rateRequestType: ['ACCOUNT', 'LIST'],
         ...customsBlock,
         requestedPackageLineItems: [
           {
@@ -133,14 +135,20 @@ export async function POST(req: NextRequest) {
 
     const rates = (details as Record<string, unknown>[]).map((d) => {
       const detailsArr = (d.ratedShipmentDetails as Record<string, unknown>[]) ?? [];
-      const shipDetail =
-        detailsArr.find(
-          (x) => x.rateType === 'ACCOUNT' || x.rateType === 'PAYOR_ACCOUNT_PACKAGE'
-        ) ?? detailsArr[0];
+      // Mirrors the domestic route — see carrier_rate_pricing_notes.md.
+      const account = detailsArr.find(
+        (x) => x.rateType === 'ACCOUNT' || x.rateType === 'PAYOR_ACCOUNT_PACKAGE'
+      );
+      const shipDetail = account ?? detailsArr[0];
+      const rateSource = account ? 'negotiated' : 'published';
       const netCharge =
         (shipDetail?.totalNetFedExCharge as string) ??
         (shipDetail?.totalNetCharge as string) ??
         '0';
+      const list = detailsArr.find((x) => x.rateType === 'LIST');
+      const listPrice = parseFloat(
+        (list?.totalNetFedExCharge as string) ?? (list?.totalNetCharge as string) ?? ''
+      );
       const commit = d.commit as Record<string, unknown> | undefined;
       const dateDetail = commit?.dateDetail as Record<string, string> | undefined;
       const estimatedDays =
@@ -154,6 +162,8 @@ export async function POST(req: NextRequest) {
         totalChargeUSD: parseFloat(netCharge),
         estimatedDays,
         deliveryDate,
+        rateSource,
+        ...(Number.isFinite(listPrice) && listPrice > 0 ? { listPriceUSD: listPrice } : {}),
       };
     });
 

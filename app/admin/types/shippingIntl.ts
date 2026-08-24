@@ -69,6 +69,8 @@ export interface IntlCartItem {
   insurance: InsuranceOption;
   /** Prepaid duties (DDP) collected from the customer, added to the total. */
   dutiesUSD?: number;
+  /** True when staff set the freight price by hand — mirrors CartItem. */
+  priceOverridden?: boolean;
 }
 
 /** Result returned after submitting an international package to a carrier.

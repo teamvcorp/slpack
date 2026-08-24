@@ -19,6 +19,9 @@ export async function POST(req: NextRequest) {
       serviceName,
       serviceCode,
       saturdayDelivery,
+      rateSource,
+      listPriceUSD,
+      priceOverridden,
       shipment,
       shippingUSD,
       insuranceUSD,
@@ -131,6 +134,43 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── 1b. Below-cost backstop ──────────────────────────────────────────────
+    // The freight price is set in the browser (and staff can now override it),
+    // so it is an untrusted figure. carrierCostUSD comes straight from the
+    // carrier's ship response, which makes it the one authoritative cost we
+    // have — and it only exists after the label call above.
+    //
+    // Payment is already captured by the time this runs, so this cannot reject:
+    // rejecting would leave a charged customer with no label. It records the
+    // shortfall instead, the same way the insurance mismatch above does, so a
+    // shipment sold below cost is visible and chaseable rather than silent.
+    const collectedFreightUSD = Number(shippingUSD) || 0;
+    if (carrierCostUSD !== null && collectedFreightUSD < carrierCostUSD) {
+      await appendError({
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        route: ROUTE,
+        carrier,
+        status: 200,
+        message:
+          `Shipment sold BELOW CARRIER COST — collected $${collectedFreightUSD.toFixed(2)} freight ` +
+          `against a $${carrierCostUSD.toFixed(2)} carrier charge, a ` +
+          `$${(carrierCostUSD - collectedFreightUSD).toFixed(2)} loss.` +
+          (priceOverridden === true
+            ? ' The price was set manually at the counter.'
+            : ' The price came from the pricing formula — check the rate quote.'),
+        requestSummary: {
+          serviceName,
+          collectedFreightUSD,
+          carrierCostUSD,
+          lossUSD: Math.round((carrierCostUSD - collectedFreightUSD) * 100) / 100,
+          rateSource,
+          listPriceUSD,
+          priceOverridden: priceOverridden === true,
+        },
+      });
+    }
+
     // ── 2. Append to shipment log ────────────────────────────────────────────
     const entry: ShipmentLogEntry = {
       id: randomUUID(),
@@ -148,6 +188,15 @@ export async function POST(req: NextRequest) {
       cardFeeUSD: Number(cardFeeUSD) > 0 ? Number(cardFeeUSD) : undefined,
       totalUSD: collectedTotalUSD,
       carrierCostUSD: carrierCostUSD ?? undefined,
+      // carrierCostUSD is always the negotiated figure. Recording which price
+      // book the QUOTE used lets the margin report size the gap between the two
+      // — a 'published' quote against a negotiated bill is where retail drifts
+      // above the intended markup. Whitelisted rather than trusted verbatim.
+      rateSource: rateSource === 'published' || rateSource === 'negotiated' ? rateSource : undefined,
+      listPriceUSD: Number.isFinite(Number(listPriceUSD)) && Number(listPriceUSD) > 0
+        ? Number(listPriceUSD)
+        : undefined,
+      priceOverridden: priceOverridden === true ? true : undefined,
       trackingNumber,
       labelBase64,
       customerName: shipment.customerName ?? '',

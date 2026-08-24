@@ -130,6 +130,13 @@ export default function CombinedCheckout({
           // Must reach the carrier label route, or a quoted-Saturday shipment
           // books standard Mon–Fri delivery.
           saturdayDelivery: item.rate.saturdayDelivery === true,
+          // Which price book this quote came from — logged so the margin report
+          // can separate list-priced quotes from account-priced ones.
+          rateSource: item.rate.rateSource,
+          // The carrier's own published retail, and whether staff set the price
+          // by hand — both logged for the margin report.
+          listPriceUSD: item.rate.listPriceUSD,
+          priceOverridden: item.priceOverridden === true,
           shipment: item.shipment,
           shippingUSD: shippingUSDItem,
           insuranceUSD,

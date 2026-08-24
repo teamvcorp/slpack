@@ -1,7 +1,7 @@
 "use client";
 
 import type { CarrierResult, ShippingRate } from '../../types/shipping';
-import { retailPrice } from '@/lib/shippingPricing';
+import { carrierAnchoredPrice } from '@/lib/shippingPricing';
 
 interface Props {
   result: CarrierResult;
@@ -80,10 +80,32 @@ export default function FedExPanel({ result, onSelectRate, selectedRateCode }: P
                       </span>
                       <div className="shrink-0 text-right">
                         <div className="text-base font-bold text-[#4D148C]">
-                          ${retailPrice(rate.totalChargeUSD).toFixed(2)}
+                          ${carrierAnchoredPrice(rate.costBasisUSD ?? rate.totalChargeUSD, rate.listPriceUSD).toFixed(2)}
                           <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-navy/40">Retail</span>
                         </div>
-                        <div className="text-[11px] text-navy/40">Cost ${rate.totalChargeUSD.toFixed(2)}</div>
+                        <div className="text-[11px] text-navy/40">
+                          Cost ${(rate.costBasisUSD ?? rate.totalChargeUSD).toFixed(2)}
+                        </div>
+                        {/* FedEx returned no ACCOUNT rate, so this "cost" is the
+                            public list price — the label will bill our lower
+                            negotiated rate, making retail overstated. */}
+                        {/* The carrier's own published retail — what FedEx would
+                            charge this customer directly. Our true cost can never
+                            exceed it, so it doubles as a sanity ceiling and a
+                            competitive yardstick. Absent for USPS/DHL. */}
+                        {rate.listPriceUSD !== undefined && (
+                          <div className="text-[11px] text-navy/40">
+                            FedEx retail ${rate.listPriceUSD.toFixed(2)}
+                          </div>
+                        )}
+                        {rate.rateSource === 'published' && (
+                          <div
+                            className="mt-0.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold leading-none text-amber-700"
+                            title="No account rate returned — this is FedEx's published list price, not what we actually pay. Retail is marked up off the higher number."
+                          >
+                            LIST RATE
+                          </div>
+                        )}
                       </div>
                     </div>
                     {(rate.estimatedDays || rate.deliveryDate) && (

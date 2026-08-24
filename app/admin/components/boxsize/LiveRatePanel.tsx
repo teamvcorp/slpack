@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { SITE } from '@/lib/siteConfig';
-import { retailPrice } from '@/lib/shippingPricing';
+import { freightPrice } from '@/lib/shippingPricing';
 import type { Dims } from '@/lib/parcelGeometry';
 import type { CarrierResult, ShippingRate } from '../../types/shipping';
 import { CARD, CARD_TITLE, CARD_SUB, LABEL, INPUT, HELP, BTN_PRIMARY, NOTE } from './styles';
@@ -229,7 +229,7 @@ export default function LiveRatePanel({
                     <div className="text-[12px] text-navy/60">{best.serviceName}</div>
                     <div className="text-lg font-bold text-navy">${best.totalChargeUSD.toFixed(2)}</div>
                     <div className="text-[11px] text-navy/50">
-                      Customer price ${retailPrice(best.totalChargeUSD).toFixed(2)}
+                      Customer price ${freightPrice(best.totalChargeUSD).toFixed(2)}
                     </div>
                     {r.rates.length > 1 && (
                       <div className="text-[10px] text-navy/35">

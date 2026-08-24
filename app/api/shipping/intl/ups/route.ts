@@ -160,6 +160,12 @@ export async function POST(req: NextRequest) {
       const charges = s.TotalCharges as Record<string, string> | undefined;
       const negotiated = (s.NegotiatedRateCharges as Record<string, Record<string, string>> | undefined)
         ?.TotalCharge?.MonetaryValue;
+      // Mirrors the domestic route: TotalCharges is UPS's published price, kept
+      // as the customer-facing reference and the fallback cost basis. Flagging
+      // the source matters most here — international negotiated rates are the
+      // likeliest to be missing.
+      const rateSource = negotiated ? 'negotiated' : 'published';
+      const listPrice = parseFloat(charges?.MonetaryValue ?? '');
 
       const guarantee = s.GuaranteedDelivery as Record<string, string> | undefined;
       const tit = s.TimeInTransit as Record<string, unknown> | undefined;
@@ -183,6 +189,8 @@ export async function POST(req: NextRequest) {
         totalChargeUSD: parseFloat(negotiated ?? charges?.MonetaryValue ?? '0'),
         estimatedDays,
         deliveryDate,
+        rateSource,
+        ...(Number.isFinite(listPrice) && listPrice > 0 ? { listPriceUSD: listPrice } : {}),
       };
     });
 

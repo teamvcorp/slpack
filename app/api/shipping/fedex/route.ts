@@ -67,9 +67,13 @@ export async function POST(req: NextRequest) {
         pickupType: 'USE_SCHEDULED_PICKUP',
         shipDateStamp: today, // lets FedEx compute committed delivery dates
         packagingType: fedexPackaging,
-        // ACCOUNT = our negotiated rate (actual cost). LIST would return the
-        // higher published/retail price, not what we actually pay FedEx.
-        rateRequestType: ['ACCOUNT'],
+        // ACCOUNT = our negotiated rate (actual cost); LIST = FedEx's published
+        // retail. Asking for LIST returns list rates IN ADDITION to the account
+        // ones (FedEx Rate API docs), so both arrive as separate
+        // ratedShipmentDetails entries keyed by rateType — we price off ACCOUNT
+        // and keep LIST as the customer-facing reference. See
+        // carrier_rate_pricing_notes.md.
+        rateRequestType: ['ACCOUNT', 'LIST'],
         requestedPackageLineItems: [
           {
             weight: { units: 'LB', value: Number(weightLbs) },
@@ -121,14 +125,26 @@ export async function POST(req: NextRequest) {
     const rates = (details as Record<string, unknown>[]).map((d) => {
       const detailsArr = (d.ratedShipmentDetails as Record<string, unknown>[]) ?? [];
       // Prefer the ACCOUNT (negotiated) rated detail; fall back to the first.
-      const shipDetail =
-        detailsArr.find(
-          (x) => x.rateType === 'ACCOUNT' || x.rateType === 'PAYOR_ACCOUNT_PACKAGE'
-        ) ?? detailsArr[0];
+      const account = detailsArr.find(
+        (x) => x.rateType === 'ACCOUNT' || x.rateType === 'PAYOR_ACCOUNT_PACKAGE'
+      );
+      // No ACCOUNT detail means detailsArr[0] is normally the LIST (published)
+      // price. The label response reports the negotiated figure regardless
+      // (lib/carrierCost.ts), so quoting list here marks retail up off a number
+      // we never pay. Flag it instead of degrading silently.
+      const shipDetail = account ?? detailsArr[0];
+      const rateSource = account ? 'negotiated' : 'published';
       const netCharge =
         (shipDetail?.totalNetFedExCharge as string) ??
         (shipDetail?.totalNetCharge as string) ??
         '0';
+      // FedEx's published retail, returned alongside ACCOUNT because we now ask
+      // for both rate types. Kept as the customer-facing reference and as the
+      // fallback cost basis when no account rate came back.
+      const list = detailsArr.find((x) => x.rateType === 'LIST');
+      const listPrice = parseFloat(
+        (list?.totalNetFedExCharge as string) ?? (list?.totalNetCharge as string) ?? ''
+      );
       // FedEx returns transit time as an enum ("TWO_DAYS"), under either
       // commit.transitDays or commit.transitTime depending on the service.
       const commit = d.commit as Record<string, unknown> | undefined;
@@ -150,6 +166,8 @@ export async function POST(req: NextRequest) {
         totalChargeUSD: parseFloat(netCharge),
         estimatedDays,
         deliveryDate,
+        rateSource,
+        ...(Number.isFinite(listPrice) && listPrice > 0 ? { listPriceUSD: listPrice } : {}),
         ...(saturdayDelivery ? { saturdayDelivery: true } : {}),
       };
     });

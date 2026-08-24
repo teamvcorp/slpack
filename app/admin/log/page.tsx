@@ -3,20 +3,22 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import DropoffReport from '../components/DropoffReport';
 import SalesReport from '../components/SalesReport';
+import MarginReport from '../components/MarginReport';
 import type { ShipmentLogEntry, CarrierKey, ErrorLogEntry } from '../types/shipping';
 
 type Period = 'day' | 'week' | 'month' | 'all';
-type Tab = 'shipments' | 'sales' | 'dropoffs' | 'errors';
+type Tab = 'shipments' | 'sales' | 'margin' | 'dropoffs' | 'errors';
 
 const TAB_LABELS: Record<Tab, string> = {
   shipments: 'Shipments',
   sales: 'Sales',
+  margin: 'Margin',
   dropoffs: 'Drop-offs',
   errors: 'Errors',
 };
 
 /** Tabs that render a self-contained report component (own data + period). */
-const SELF_FETCHING: Tab[] = ['sales', 'dropoffs'];
+const SELF_FETCHING: Tab[] = ['sales', 'margin', 'dropoffs'];
 
 interface LogResponse {
   entries: ShipmentLogEntry[];
@@ -210,7 +212,7 @@ export default function ShipmentLogPage() {
         </div>
         {/* Tab switcher */}
         <div className="flex gap-1 rounded-xl border border-navy/10 bg-cream p-1">
-          {(['shipments', 'sales', 'dropoffs', 'errors'] as Tab[]).map((t) => (
+          {(['shipments', 'sales', 'margin', 'dropoffs', 'errors'] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
@@ -403,13 +405,18 @@ export default function ShipmentLogPage() {
                             {entry.insuranceUSD > 0 && (
                               <p className="text-xs text-navy/40">+${entry.insuranceUSD.toFixed(2)} ins.</p>
                             )}
-                            {/* Real margin: what the customer paid minus what the
-                                carrier actually billed for the label. Older entries
-                                predate cost capture and simply show nothing. Note
-                                this excludes carrier post-audit adjustments
-                                (reweigh, dim-weight), which arrive on the invoice. */}
+                            {/* Real FREIGHT margin: what we collected for shipping
+                                minus what the carrier billed for the label. Uses
+                                shippingUSD, NOT totalUSD — totalUSD also carries
+                                insurance, the packing fee, the card surcharge and
+                                duties, none of which the label charge covers, so
+                                using it overstates margin (and disagreed with the
+                                Margin tab). Older entries predate cost capture and
+                                show nothing. Excludes carrier post-audit
+                                adjustments (reweigh, dim-weight), which arrive on
+                                the invoice days later. */}
                             {!isVoided && entry.carrierCostUSD !== undefined && (() => {
-                              const margin = entry.totalUSD - entry.carrierCostUSD;
+                              const margin = entry.shippingUSD - entry.carrierCostUSD;
                               return (
                                 <p
                                   className={`text-xs ${margin < 0 ? 'font-semibold text-red-600' : 'text-navy/40'}`}
@@ -561,6 +568,7 @@ export default function ShipmentLogPage() {
 
       {/* Self-contained report tabs */}
       {tab === 'sales' && <SalesReport />}
+      {tab === 'margin' && <MarginReport />}
       {tab === 'dropoffs' && <DropoffReport />}
 
       {loading && !SELF_FETCHING.includes(tab) && (

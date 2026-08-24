@@ -161,6 +161,18 @@ export async function POST(req: NextRequest) {
       // Negotiated (account) total when available — our actual cost.
       const negotiated = (s.NegotiatedRateCharges as Record<string, Record<string, string>> | undefined)
         ?.TotalCharge?.MonetaryValue;
+      // Falling back to TotalCharges means quoting the PUBLISHED list price. UPS
+      // omits NegotiatedRateCharges when the account has no rate on file for the
+      // service (common on express while ground is discounted), and the label
+      // response still bills the negotiated figure — so retail would be marked up
+      // off a price we never pay. Flag it rather than letting it pass silently.
+      const rateSource = negotiated ? 'negotiated' : 'published';
+      // TotalCharges is UPS's PUBLISHED price — what they'd charge a walk-in
+      // customer. Keep it even when a negotiated rate exists: it bounds what the
+      // shipment is really worth and is the fallback cost basis when it doesn't.
+      // When no negotiated rate came back this is the same figure as
+      // totalChargeUSD, which is precisely the case worth seeing.
+      const listPrice = parseFloat(charges?.MonetaryValue ?? '');
 
       // Prefer time-in-transit data; fall back to GuaranteedDelivery (guaranteed
       // services only). ServiceSummary may be an array or a single object.
@@ -194,6 +206,8 @@ export async function POST(req: NextRequest) {
         totalChargeUSD: parseFloat(negotiated ?? charges?.MonetaryValue ?? '0'),
         estimatedDays,
         deliveryDate,
+        rateSource,
+        ...(Number.isFinite(listPrice) && listPrice > 0 ? { listPriceUSD: listPrice } : {}),
         // The Saturday surcharge is already inside the rated total.
         ...(saturdayDelivery ? { saturdayDelivery: true } : {}),
       };

@@ -1,7 +1,7 @@
 "use client";
 
 import type { CarrierResult, ShippingRate } from '../../types/shipping';
-import { retailPrice } from '@/lib/shippingPricing';
+import { carrierAnchoredPrice } from '@/lib/shippingPricing';
 
 interface Props {
   result: CarrierResult;
@@ -69,10 +69,10 @@ export default function DHLPanel({ result, onSelectRate, selectedRateCode }: Pro
                       <span className="text-sm font-medium text-navy">{rate.serviceName}</span>
                       <div className="shrink-0 text-right">
                         <div className="text-base font-bold text-[#D40511]">
-                          ${retailPrice(rate.totalChargeUSD).toFixed(2)}
+                          ${carrierAnchoredPrice(rate.costBasisUSD ?? rate.totalChargeUSD, rate.listPriceUSD).toFixed(2)}
                           <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-navy/40">Retail</span>
                         </div>
-                        <div className="text-[11px] text-navy/40">Cost ${rate.totalChargeUSD.toFixed(2)}</div>
+                        <div className="text-[11px] text-navy/40">Cost ${(rate.costBasisUSD ?? rate.totalChargeUSD).toFixed(2)}</div>
                       </div>
                     </div>
                     {(rate.estimatedDays || rate.deliveryDate) && (

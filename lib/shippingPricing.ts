@@ -3,9 +3,95 @@ import type { InsuranceOption } from '@/app/admin/types/shipping';
 /** Store markup applied to carrier cost to get the customer (retail) price. */
 export const SHIPPING_MARKUP = 1.55; // 55%
 
-/** Customer-facing retail price for a given carrier cost (rounded to cents). */
+/**
+ * Floor on the gross margin of a single label, in dollars.
+ *
+ * A percentage markup scales with carrier cost, but the work does not: taking a
+ * package, boxing it, printing a label and handing it over costs the same
+ * whether the freight is $6 or $90. At 55%, a $9 ground label grosses $4.95 —
+ * less than the counter time it consumes.
+ *
+ * See freightPrice() for where this binds (only below ~$9.09 of carrier cost).
+ */
+export const MIN_SHIPPING_MARGIN_USD = 5;
+
+/**
+ * Raw store markup on a carrier cost, rounded to cents.
+ *
+ * This is the PURE multiplier with no margin floor, and it must stay that way —
+ * retailDeclaredValueFee() builds on it, and coverage the carrier includes free
+ * (the <= $100 tier, which returns 0) has to stay free. Applying the floor here
+ * would charge $5 for nothing and turn the $3.90 declared-value fee into $8.90.
+ *
+ * For freight, use freightPrice() instead.
+ */
 export function retailPrice(costUSD: number): number {
   return Math.round(costUSD * SHIPPING_MARKUP * 100) / 100;
+}
+
+/**
+ * Customer-facing price for FREIGHT — the store markup with a minimum gross
+ * margin floor. This is the function every carrier rate should be priced through.
+ *
+ *   price = max(cost x 1.55, cost + 5)
+ *
+ * The floor only binds below **$9.09** of carrier cost: that is where 55% of the
+ * cost first reaches $5 (0.55 x 9.09 = 5.00). Above it the percentage already
+ * clears the floor on its own, so express, overnight and 2-day pricing are
+ * untouched — this is purely a cheap-ground / USPS correction.
+ *
+ * A zero or negative cost returns 0 rather than the bare floor: a carrier that
+ * returned no rating must not silently become a $5 charge.
+ */
+export function freightPrice(costUSD: number): number {
+  const cost = Number(costUSD);
+  if (!Number.isFinite(cost) || cost <= 0) return 0;
+  const marked = cost * SHIPPING_MARKUP;
+  const floored = cost + MIN_SHIPPING_MARGIN_USD;
+  return Math.round(Math.max(marked, floored) * 100) / 100;
+}
+
+/** Minimum we can charge without losing money on a shipment. */
+export function priceFloorUSD(costUSD: number): number {
+  const cost = Number(costUSD);
+  if (!Number.isFinite(cost) || cost <= 0) return 0;
+  return Math.round((cost + MIN_SHIPPING_MARGIN_USD) * 100) / 100;
+}
+
+/**
+ * The price we aim to charge: **the carrier's own published retail**.
+ *
+ * Shop policy (set 2026-08-24): never charge more than the carrier would charge
+ * this customer directly, but charge full carrier retail whenever we can.
+ *
+ * Why not cost x 1.55? Because the markup is a multiple of OUR COST while the
+ * carriers price off their own retail, and they discount express far harder than
+ * ground. On a real overnight — $74.89 cost, $187.22 UPS retail — a cost-based
+ * markup asks $116.08 and leaves $71 on the table on a single parcel. Anchoring
+ * to the carrier's number captures that without ever being undercut by a
+ * customer who checks ups.com.
+ *
+ * The floor still wins: if a carrier's retail somehow sits below our cost plus
+ * the minimum margin, we charge the floor rather than book a loss. That is the
+ * only case where the returned price exceeds carrier retail.
+ *
+ * Falls back to the cost-based markup when no list price exists (USPS, DHL).
+ */
+export function carrierAnchoredPrice(costUSD: number, listPriceUSD?: number | null): number {
+  const list = Number(listPriceUSD);
+  if (!Number.isFinite(list) || list <= 0) return freightPrice(costUSD);
+  return Math.round(Math.max(list, priceFloorUSD(costUSD)) * 100) / 100;
+}
+
+/**
+ * Hard ceiling on what may be charged — the carrier's retail, or our floor when
+ * that is higher. Null when the carrier published no list price, in which case
+ * there is nothing to compare against and no ceiling is enforced.
+ */
+export function priceCeilingUSD(costUSD: number, listPriceUSD?: number | null): number | null {
+  const list = Number(listPriceUSD);
+  if (!Number.isFinite(list) || list <= 0) return null;
+  return Math.round(Math.max(list, priceFloorUSD(costUSD)) * 100) / 100;
 }
 
 /**

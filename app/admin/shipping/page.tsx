@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { stashShippingCart } from '@/lib/comboHandoff';
 import ShipmentForm from '../components/ShipmentForm';
@@ -11,7 +11,15 @@ import CarrierDetailModal from '../components/CarrierDetailModal';
 import StripeCheckout from '../components/StripeCheckout';
 import ShippingLabelModal from '../components/ShippingLabelModal';
 import StaleSessionBanner from '../components/StaleSessionBanner';
-import { retailPrice } from '@/lib/shippingPricing';
+import { carrierAnchoredPrice } from '@/lib/shippingPricing';
+import {
+  DEFAULT_CARRIER_INCENTIVES,
+  costBasisUSD,
+  incentiveFor,
+  normalizeCarrierIncentives,
+  type CarrierIncentives,
+} from '@/lib/carrierIncentive';
+import { classifyService } from '@/lib/serviceClass';
 import { isQuoteStale } from '@/lib/appVersion';
 import type {
   ShipmentInput,
@@ -66,7 +74,15 @@ export default function ShippingComparisonPage() {
   // Signature of rate-affecting fields at Compare time — if these change afterward,
   // the shown rates are stale and we force a re-compare.
   const comparedSigRef = useRef<string>('');
-  const [previewCarrier, setPreviewCarrier] = useState<{ carrier: CarrierKey; rate: ShippingRate } | null>(null);
+  const [previewCarrier, setPreviewCarrier] = useState<{
+    carrier: CarrierKey;
+    rate: ShippingRate;
+    /** Our real cost for this rate — drives the modal's floor and recommendation. */
+    costBasis: number;
+  } | null>(null);
+  // Our discount off each carrier's list price, from Settings. Defaults assume
+  // NO discount, which over-prices rather than under-prices if the fetch fails.
+  const [incentives, setIncentives] = useState<CarrierIncentives>(DEFAULT_CARRIER_INCENTIVES);
   const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
   const [formKey, setFormKey] = useState(0);
@@ -75,12 +91,47 @@ export default function ShippingComparisonPage() {
   const [quotedAt, setQuotedAt] = useState<number | null>(null);
   const [serverBuildId, setServerBuildId] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/settings/carrier-incentives')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.incentives) setIncentives(normalizeCarrierIncentives(d.incentives));
+      })
+      .catch(() => {
+        /* keep the zero defaults — a failed fetch must not invent a discount */
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const markLoading = useCallback((carrier: CarrierKey) => {
     setResults((prev) => ({
       ...prev,
       [carrier]: { ...prev[carrier], loading: true, error: null, rates: [] },
     }));
   }, []);
+
+  /**
+   * Attach our real cost to each rate before anything renders it.
+   *
+   * Done ONCE here rather than in each panel so the panel price, the detail
+   * modal and the cart can never disagree — a panel quoting a price the modal
+   * contradicts is worse than either being wrong on its own.
+   */
+  const withCostBasis = useCallback(
+    (carrier: CarrierKey, rates: ShippingRate[]): ShippingRate[] =>
+      rates.map((rate) => ({
+        ...rate,
+        costBasisUSD: costBasisUSD({
+          // totalChargeUSD is the account rate only when the carrier said so.
+          accountUSD: rate.rateSource === 'negotiated' ? rate.totalChargeUSD : null,
+          listUSD: rate.listPriceUSD,
+          incentivePct: incentiveFor(incentives, carrier, classifyService(rate.serviceName)),
+          quotedUSD: rate.totalChargeUSD,
+        }),
+      })),
+    [incentives]
+  );
 
   const setResult = useCallback(
     (carrier: CarrierKey, rates: ShippingRate[], error: string | null) => {
@@ -89,13 +140,13 @@ export default function ShippingComparisonPage() {
         [carrier]: {
           ...prev[carrier],
           loading: false,
-          rates,
+          rates: withCostBasis(carrier, rates),
           error,
           lastFetched: new Date().toLocaleTimeString(),
         },
       }));
     },
-    []
+    [withCostBasis]
   );
 
   async function fetchCarrier(
@@ -177,20 +228,39 @@ export default function ShippingComparisonPage() {
       setQuotedAt(null);
       return;
     }
-    // Customers are always charged retail (carrier cost × store markup).
-    const chargeRate = { ...rate, totalChargeUSD: retailPrice(rate.totalChargeUSD) };
-    setPreviewCarrier({ carrier, rate: chargeRate });
+    // Price off our REAL cost, not the quoted figure — when the carrier returned
+    // no account rate those differ, and marking up a list price is what produced
+    // a $187.22 quote on a $74.89 shipment. Matches what the panel displayed.
+    const basis = rate.costBasisUSD ?? rate.totalChargeUSD;
+    const chargeRate = {
+      ...rate,
+      totalChargeUSD: carrierAnchoredPrice(basis, rate.listPriceUSD),
+    };
+    setPreviewCarrier({ carrier, rate: chargeRate, costBasis: basis });
     setModalStep('carrier-detail');
   }
 
-  function handleDetailConfirm({ insurance }: { insurance: InsuranceOption }) {
+  function handleDetailConfirm({
+    insurance,
+    freightUSD,
+  }: {
+    insurance: InsuranceOption;
+    freightUSD?: number;
+  }) {
     if (!previewCarrier || !currentShipment) return;
+    // Staff may set the price by hand; the modal already refuses anything below
+    // cost plus the margin floor, so an override here is a deliberate decision.
+    const rate: ShippingRate =
+      freightUSD !== undefined
+        ? { ...previewCarrier.rate, totalChargeUSD: freightUSD }
+        : previewCarrier.rate;
     const newItem: CartItem = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       carrier: previewCarrier.carrier,
-      rate: previewCarrier.rate,
+      rate,
       shipment: currentShipment,
       insurance,
+      priceOverridden: freightUSD !== undefined,
     };
     setCart((prev) => [...prev, newItem]);
     setPreviewCarrier(null);
@@ -387,6 +457,7 @@ export default function ShippingComparisonPage() {
         <CarrierDetailModal
           carrier={previewCarrier.carrier}
           rate={previewCarrier.rate}
+          costBasisUSD={previewCarrier.costBasis}
           declaredValueUSD={currentShipment.declaredValueUSD}
           packaging={currentShipment.packaging}
           customerName={currentShipment.customerName}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import IntlShipmentForm from '../components/intl/IntlShipmentForm';
 import CustomsFormModal from '../components/intl/CustomsFormModal';
 import IntlDocumentsModal from '../components/intl/IntlDocumentsModal';
@@ -9,7 +9,15 @@ import UPSPanel from '../components/carriers/UPSPanel';
 import CarrierDetailModal from '../components/CarrierDetailModal';
 import StripeCheckout from '../components/StripeCheckout';
 import StaleSessionBanner from '../components/StaleSessionBanner';
-import { retailPrice } from '@/lib/shippingPricing';
+import { carrierAnchoredPrice } from '@/lib/shippingPricing';
+import {
+  DEFAULT_CARRIER_INCENTIVES,
+  costBasisUSD,
+  incentiveFor,
+  normalizeCarrierIncentives,
+  type CarrierIncentives,
+} from '@/lib/carrierIncentive';
+import { classifyService } from '@/lib/serviceClass';
 import { isQuoteStale } from '@/lib/appVersion';
 import type {
   ShipmentInput,
@@ -40,7 +48,15 @@ export default function IntlShippingPage() {
   const [currentShipment, setCurrentShipment] = useState<ShipmentInput | null>(null);
   const [cart, setCart] = useState<IntlCartItem[]>([]);
   const [modalStep, setModalStep] = useState<ModalStep>(null);
-  const [previewCarrier, setPreviewCarrier] = useState<{ carrier: IntlCarrier; rate: ShippingRate } | null>(null);
+  const [previewCarrier, setPreviewCarrier] = useState<{
+    carrier: IntlCarrier;
+    rate: ShippingRate;
+    /** Our real cost for this rate — drives the modal's floor and recommendation. */
+    costBasis: number;
+  } | null>(null);
+  // Our discount off each carrier's list price, from Settings. Defaults assume
+  // NO discount, which over-prices rather than under-prices if the fetch fails.
+  const [incentives, setIncentives] = useState<CarrierIncentives>(DEFAULT_CARRIER_INCENTIVES);
   const [pendingCustoms, setPendingCustoms] = useState<CustomsInfo | null>(null);
   const [cartResults, setCartResults] = useState<CartResult[] | null>(null);
   const [anyLoading, setAnyLoading] = useState(false);
@@ -53,12 +69,40 @@ export default function IntlShippingPage() {
     setResults((prev) => ({ ...prev, [carrier]: { ...prev[carrier], loading: true, error: null, rates: [] } }));
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/settings/carrier-incentives')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.incentives) setIncentives(normalizeCarrierIncentives(d.incentives));
+      })
+      .catch(() => {
+        /* keep the zero defaults — a failed fetch must not invent a discount */
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  /** Attach our real cost to each rate once, so panel/modal/cart never disagree. */
+  const withCostBasis = useCallback(
+    (carrier: IntlCarrier, rates: ShippingRate[]): ShippingRate[] =>
+      rates.map((rate) => ({
+        ...rate,
+        costBasisUSD: costBasisUSD({
+          accountUSD: rate.rateSource === 'negotiated' ? rate.totalChargeUSD : null,
+          listUSD: rate.listPriceUSD,
+          incentivePct: incentiveFor(incentives, carrier, classifyService(rate.serviceName)),
+          quotedUSD: rate.totalChargeUSD,
+        }),
+      })),
+    [incentives]
+  );
+
   const setResult = useCallback((carrier: IntlCarrier, rates: ShippingRate[], error: string | null) => {
     setResults((prev) => ({
       ...prev,
-      [carrier]: { ...prev[carrier], loading: false, rates, error, lastFetched: new Date().toLocaleTimeString() },
+      [carrier]: { ...prev[carrier], loading: false, rates: withCostBasis(carrier, rates), error, lastFetched: new Date().toLocaleTimeString() },
     }));
-  }, []);
+  }, [withCostBasis]);
 
   async function fetchCarrier(carrier: IntlCarrier, shipment: ShipmentInput) {
     markLoading(carrier);
@@ -97,8 +141,14 @@ export default function IntlShippingPage() {
       setQuotedAt(null);
       return;
     }
-    const chargeRate = { ...rate, totalChargeUSD: retailPrice(rate.totalChargeUSD) };
-    setPreviewCarrier({ carrier, rate: chargeRate });
+    // Price off our REAL cost, not the quoted figure — they differ whenever the
+    // carrier returned no account rate. Matches what the panel displayed.
+    const basis = rate.costBasisUSD ?? rate.totalChargeUSD;
+    const chargeRate = {
+      ...rate,
+      totalChargeUSD: carrierAnchoredPrice(basis, rate.listPriceUSD),
+    };
+    setPreviewCarrier({ carrier, rate: chargeRate, costBasis: basis });
     setPendingCustoms(null);
     setModalStep('customs'); // customs BEFORE insurance
   }
@@ -108,15 +158,28 @@ export default function IntlShippingPage() {
     setModalStep('carrier-detail');
   }
 
-  function handleDetailConfirm({ insurance }: { insurance: InsuranceOption }) {
+  function handleDetailConfirm({
+    insurance,
+    freightUSD,
+  }: {
+    insurance: InsuranceOption;
+    freightUSD?: number;
+  }) {
     if (!previewCarrier || !currentShipment || !pendingCustoms) return;
     const shipment: IntlShipmentInput = { ...currentShipment, customs: pendingCustoms };
+    // Staff may set the price by hand; the modal already refuses anything below
+    // cost plus the margin floor, so an override here is a deliberate decision.
+    const rate: ShippingRate =
+      freightUSD !== undefined
+        ? { ...previewCarrier.rate, totalChargeUSD: freightUSD }
+        : previewCarrier.rate;
     const newItem: IntlCartItem = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       carrier: previewCarrier.carrier,
-      rate: previewCarrier.rate,
+      rate,
       shipment,
       insurance,
+      priceOverridden: freightUSD !== undefined,
       // Prepaid duties (DDP) collected from the customer, added to the total.
       dutiesUSD: pendingCustoms.dutiesCollectedUSD ?? 0,
     };
@@ -255,6 +318,7 @@ export default function IntlShippingPage() {
         <CarrierDetailModal
           carrier={previewCarrier.carrier}
           rate={previewCarrier.rate}
+          costBasisUSD={previewCarrier.costBasis}
           declaredValueUSD={currentShipment.declaredValueUSD}
           customerName={currentShipment.customerName}
           customerEmail={currentShipment.customerEmail}

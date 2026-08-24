@@ -4,24 +4,28 @@ import { useEffect, useState } from 'react';
 import { testPrint, refreshSettings } from '../components/receiptPrinter';
 import { refreshTerminalSettings } from '../components/stripeTerminal';
 import PackingPricingCard from '../components/PackingPricingCard';
+import CarrierIncentiveCard from '../components/CarrierIncentiveCard';
 
 /**
  * Admin settings:
  *  - Receipt printer (Epson TM-T20IV-SP): LAN address, see receiptPrinter.ts.
  *  - Card reader (Stripe Terminal S710): pairing + enable, driven server-side.
  *  - Packing pricing: per-square-inch rates behind the Box Size Calculator.
+ *  - Carrier incentives: our discount off list, used to derive a cost basis
+ *    when a carrier returns no account rate.
  */
 export default function SettingsPage() {
   return (
     <div className="py-6">
       <h1 className="text-2xl font-bold text-navy">Settings</h1>
       <p className="mt-1 text-sm text-navy/50">
-        Configure the receipt printer, card reader, and packing pricing used at the counter. Shipping
-        labels are unaffected.
+        Configure the receipt printer, card reader, packing pricing, and carrier incentives used at
+        the counter. Shipping labels are unaffected.
       </p>
       <ReceiptPrinterCard />
       <CardReaderCard />
       <PackingPricingCard />
+      <CarrierIncentiveCard />
     </div>
   );
 }
