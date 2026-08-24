@@ -1,3 +1,5 @@
+import type { InsuranceOption } from '@/app/admin/types/shipping';
+
 /** Store markup applied to carrier cost to get the customer (retail) price. */
 export const SHIPPING_MARKUP = 1.55; // 55%
 
@@ -61,4 +63,45 @@ export function maxDeclaredValue(
   if (carrier === 'fedex' && packaging === 'FEDEX_ENVELOPE') return 100;
   if (carrier === 'fedex' && isFedexGround(serviceName)) return 1000;
   return 50000;
+}
+
+/**
+ * Re-derive a client-supplied insurance selection on the server.
+ *
+ * Coverage is priced in the browser (CarrierDetailModal), so the premium that
+ * arrives on a submit request must never be trusted — recompute it from the
+ * declared value, and clamp that value to what the carrier will actually cover
+ * for this service. The clamp matters beyond pricing: an over-cap declared value
+ * forwarded to FedEx/UPS is rejected by the carrier, which costs us the label.
+ *
+ * `enabled && valueUSD > 0` is the same gate the label routes apply, so a toggle
+ * left on with no value normalizes to "off" rather than to empty coverage.
+ *
+ * Returns a normalized option safe both to forward to a label route and to log.
+ */
+export function priceInsurance(
+  raw: unknown,
+  carrier: string,
+  serviceName: string,
+  packaging?: string
+): InsuranceOption {
+  const input = (raw ?? {}) as Partial<InsuranceOption>;
+  const cap = maxDeclaredValue(carrier, serviceName, packaging);
+
+  const requested = Number(input.valueUSD);
+  const value = Number.isFinite(requested)
+    ? Math.round(Math.min(Math.max(requested, 0), cap) * 100) / 100
+    : 0;
+
+  const enabled = input.enabled === true && value > 0;
+  // Mirror the 120-char limit the modal's input enforces.
+  const description =
+    typeof input.description === 'string' ? input.description.trim().slice(0, 120) : '';
+
+  return {
+    enabled,
+    valueUSD: enabled ? value : 0,
+    premiumUSD: enabled ? retailDeclaredValueFee(value) : 0,
+    description: enabled && description ? description : undefined,
+  };
 }

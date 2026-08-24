@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { appendLog } from '@/lib/shipmentLog';
+import { appendError } from '@/lib/errorLog';
 import { logAndRespond } from '@/lib/apiErrors';
 import { sanitizeEmail } from '@/lib/email';
 import { INTERNAL_HEADER, internalApiToken } from '@/lib/internalAuth';
 import { upsertContacts } from '@/lib/contacts';
 import { buildShipmentReceiptHtml } from '@/lib/receipt';
+import { priceInsurance } from '@/lib/shippingPricing';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
 
 const ROUTE = 'shipping/submit';
@@ -28,6 +30,51 @@ export async function POST(req: NextRequest) {
       transactionId,
       suppressEmail,
     } = await req.json();
+
+    // ── 0. Re-price insurance server-side ────────────────────────────────────
+    // The browser picks the declared value, so it is an untrusted input: derive
+    // the premium here from valueUSD instead of accepting the client's figure,
+    // and clamp the value to the carrier cap before it reaches the label call.
+    const pricedInsurance = priceInsurance(insurance, carrier, serviceName, shipment?.packaging);
+    const insuranceChargeUSD = pricedInsurance.premiumUSD;
+
+    // Recompute the total from its parts rather than trusting the client's sum.
+    // shippingUSD stays as quoted — a carrier rate cannot be re-derived after
+    // the fact without a fresh quote that may legitimately differ.
+    const chargeTotalUSD =
+      Math.round(
+        (Number(shippingUSD) +
+          insuranceChargeUSD +
+          Number(packingFeeUSD ?? 0) +
+          Number(cardFeeUSD ?? 0)) *
+          100
+      ) / 100;
+
+    // Payment is captured before this route runs, so a mismatch can't be undone
+    // by rejecting the request — record it instead. A stale client build or a
+    // tampered payload then shows up in the error log rather than silently
+    // under-charging, and the log/receipt still carry the server's figures.
+    const clientInsuranceUSD = Number(insuranceUSD ?? 0);
+    if (Math.abs(clientInsuranceUSD - insuranceChargeUSD) > 0.01) {
+      await appendError({
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        route: ROUTE,
+        carrier,
+        status: 200,
+        message:
+          `Insurance premium mismatch — client sent $${clientInsuranceUSD.toFixed(2)}, ` +
+          `server priced $${insuranceChargeUSD.toFixed(2)}. Logged the server figure.`,
+        requestSummary: {
+          serviceName,
+          declaredValueUSD: pricedInsurance.valueUSD,
+          clientInsuranceUSD,
+          serverInsuranceUSD: insuranceChargeUSD,
+          clientTotalUSD: Number(totalUSD ?? 0),
+          serverTotalUSD: chargeTotalUSD,
+        },
+      });
+    }
 
     // ── 1. Generate label via carrier API ───────────────────────────────────
     // Attempt twice: carrier label APIs occasionally throw transient errors, and
@@ -53,7 +100,8 @@ export async function POST(req: NextRequest) {
             body: JSON.stringify({
               shipment,
               serviceCode,
-              insurance,
+              // Normalized/capped, never the raw client object.
+              insurance: pricedInsurance,
               saturdayDelivery: saturdayDelivery === true,
             }),
           }
@@ -84,17 +132,17 @@ export async function POST(req: NextRequest) {
       destState: shipment.destState ?? '',
       weightLbs: shipment.weightLbs,
       shippingUSD: Number(shippingUSD),
-      insuranceUSD: Number(insuranceUSD),
+      insuranceUSD: insuranceChargeUSD,
       packingFeeUSD: Number(packingFeeUSD ?? 0),
       cardFeeUSD: Number(cardFeeUSD) > 0 ? Number(cardFeeUSD) : undefined,
-      totalUSD: Number(totalUSD),
+      totalUSD: chargeTotalUSD,
       trackingNumber,
       labelBase64,
       customerName: shipment.customerName ?? '',
       customerPhone: shipment.customerPhone ?? '',
       customerEmail: shipment.customerEmail ?? '',
       destAttention: shipment.destAttention?.trim() || undefined,
-      insuranceDescription: insurance?.description?.trim() || undefined,
+      insuranceDescription: pricedInsurance.description,
       paymentMethod: (paymentMethod === 'cash' ? 'cash' : 'card') as 'card' | 'cash',
       saturdayDelivery: saturdayDelivery === true ? true : undefined,
       transactionId: typeof transactionId === 'string' ? transactionId : undefined,

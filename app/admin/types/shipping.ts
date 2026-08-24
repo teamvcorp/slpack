@@ -111,7 +111,9 @@ export interface InsuranceOption {
   enabled: boolean;
   /** Declared value in USD — mirrors shipment.declaredValueUSD */
   valueUSD: number;
-  /** Carrier declared-value (liability) fee — see lib/shippingPricing declaredValueFee */
+  /** Retail declared-value (liability) fee — see lib/shippingPricing
+   *  retailDeclaredValueFee. Set in the browser for display, but re-derived from
+   *  valueUSD server-side by priceInsurance() before it is charged or logged. */
   premiumUSD: number;
   /** Optional description of what's being insured (for records / claims) */
   description?: string;
