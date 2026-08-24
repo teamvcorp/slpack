@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { SelectedRate, InsuranceOption, ShippingRate, CarrierKey } from '../types/shipping';
-import { declaredValueFee, maxDeclaredValue, isFedexGround } from '@/lib/shippingPricing';
+import { retailDeclaredValueFee, maxDeclaredValue, isFedexGround } from '@/lib/shippingPricing';
 
 interface Props {
   carrier: CarrierKey;
@@ -49,8 +49,9 @@ export default function CarrierDetailModal({
   );
   const [insDescription, setInsDescription] = useState('');
 
-  // Carrier declared-value (liability) fee — free up to $100, then tiered.
-  const premium = insEnabled ? declaredValueFee(insValue) : 0;
+  // Declared-value (liability) coverage at retail — free up to $100, then the
+  // carrier's tiered fee with the store markup applied (same 1.55x as freight).
+  const premium = insEnabled ? retailDeclaredValueFee(insValue) : 0;
   const total = rate.totalChargeUSD + premium;
 
   function handleConfirm() {

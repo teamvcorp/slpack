@@ -25,6 +25,23 @@ export function declaredValueFee(declaredValueUSD: number): number {
   return Math.round((3.9 + units * 1.3) * 100) / 100;
 }
 
+/**
+ * Customer-facing price for declared-value coverage: the carrier's fee with the
+ * store markup applied, same 1.55x as freight.
+ *
+ * declaredValueFee() deliberately stays at raw carrier cost — it mirrors the
+ * published UPS/FedEx schedules in ups_declared_value_insurance.md and
+ * fedex_declared_value_insurance.md, and must stay directly comparable to them
+ * when those schedules are re-verified each January. Retail pricing layers on
+ * top rather than being baked into the cost function.
+ *
+ * The <= $100 tier returns 0, and 0 * 1.55 = 0 — coverage that the carrier
+ * includes in the base rate stays free to the customer.
+ */
+export function retailDeclaredValueFee(declaredValueUSD: number): number {
+  return retailPrice(declaredValueFee(declaredValueUSD));
+}
+
 /** True when a FedEx rate is a Ground/Home Delivery service (declared value capped at $1,000). */
 export function isFedexGround(serviceName: string): boolean {
   return /ground|home\s*delivery/i.test(serviceName);
