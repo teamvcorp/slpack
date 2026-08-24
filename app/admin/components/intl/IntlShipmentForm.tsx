@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { missingParcelFields, describeMissing, type ParcelField } from '@/lib/parcelEntry';
 import type { ShipmentInput } from '../../types/shipping';
 
 /**
@@ -57,10 +58,12 @@ const DEFAULTS: ShipmentInput = {
   destCountry: 'MX',
   destAttention: '',
   residential: true,
-  weightLbs: 2,
-  lengthIn: 12,
-  widthIn: 9,
-  heightIn: 6,
+  // Deliberately ZERO — see lib/parcelEntry.ts. A prefilled package is never
+  // caught by `required`, so staff could quote the last customer's numbers.
+  weightLbs: 0,
+  lengthIn: 0,
+  widthIn: 0,
+  heightIn: 0,
   declaredValueUSD: 0,
   customerName: '',
   customerPhone: '',
@@ -76,6 +79,24 @@ export default function IntlShipmentForm({ onSubmit, loading }: Props) {
   const [addrResult, setAddrResult] = useState<AddressResult | null>(null);
   const [addrError, setAddrError] = useState<string | null>(null);
 
+  // Raw text for the parcel fields, held alongside the numeric state so a
+  // half-typed "0." isn't parsed to 0 and blanked mid-keystroke (which would
+  // make 0.5 lb unenterable). Same rule as the domestic form.
+  const [parcelText, setParcelText] = useState<Record<ParcelField, string>>({
+    weightLbs: '',
+    lengthIn: '',
+    widthIn: '',
+    heightIn: '',
+  });
+  const [parcelMissing, setParcelMissing] = useState<ParcelField[]>([]);
+
+  function setParcel(key: ParcelField, text: string) {
+    setParcelText((prev) => ({ ...prev, [key]: text }));
+    const n = parseFloat(text);
+    set(key, Number.isFinite(n) && n > 0 ? n : 0);
+    setParcelMissing((prev) => prev.filter((f) => f !== key));
+  }
+
   function set<K extends keyof ShipmentInput>(key: K, value: ShipmentInput[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (['destStreet', 'destZip', 'destCity', 'destState', 'destCountry'].includes(key as string)) {
@@ -86,6 +107,13 @@ export default function IntlShipmentForm({ onSubmit, loading }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // No packaging selector here, so all four fields are always required.
+    const missing = missingParcelFields(form);
+    if (missing.length > 0) {
+      setParcelMissing(missing);
+      return;
+    }
+    setParcelMissing([]);
     onSubmit(form);
   }
 
@@ -139,6 +167,11 @@ export default function IntlShipmentForm({ onSubmit, loading }: Props) {
   const input =
     'w-full rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm text-navy placeholder-navy/30 focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue';
   const lbl = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-navy/50';
+
+  /** Parcel inputs turn red once a blocked submit has flagged them as empty. */
+  function parcelInput(key: ParcelField): string {
+    return parcelMissing.includes(key) ? `${input} border-red ring-1 ring-red` : input;
+  }
 
   const senderComplete = Boolean(form.senderName?.trim() && (form.senderPhone?.trim() || form.senderEmail?.trim()));
 
@@ -243,26 +276,32 @@ export default function IntlShipmentForm({ onSubmit, loading }: Props) {
       {/* Package dimensions */}
       <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
         <div>
-          <label className={lbl}>Weight (lbs)</label>
-          <input className={input} type="number" min="0.1" step="0.1" value={form.weightLbs} onChange={(e) => set('weightLbs', parseFloat(e.target.value) || 0)} required />
+          <label className={lbl}>Weight (lbs) <span className="text-red">*</span></label>
+          <input className={parcelInput('weightLbs')} type="number" min="0.1" step="0.1" placeholder="0.0" value={parcelText.weightLbs} onChange={(e) => setParcel('weightLbs', e.target.value)} required />
         </div>
         <div>
-          <label className={lbl}>Length (in)</label>
-          <input className={input} type="number" min="1" step="0.5" value={form.lengthIn} onChange={(e) => set('lengthIn', parseFloat(e.target.value) || 0)} required />
+          <label className={lbl}>Length (in) <span className="text-red">*</span></label>
+          <input className={parcelInput('lengthIn')} type="number" min="1" step="0.5" placeholder="0" value={parcelText.lengthIn} onChange={(e) => setParcel('lengthIn', e.target.value)} required />
         </div>
         <div>
-          <label className={lbl}>Width (in)</label>
-          <input className={input} type="number" min="1" step="0.5" value={form.widthIn} onChange={(e) => set('widthIn', parseFloat(e.target.value) || 0)} required />
+          <label className={lbl}>Width (in) <span className="text-red">*</span></label>
+          <input className={parcelInput('widthIn')} type="number" min="1" step="0.5" placeholder="0" value={parcelText.widthIn} onChange={(e) => setParcel('widthIn', e.target.value)} required />
         </div>
         <div>
-          <label className={lbl}>Height (in)</label>
-          <input className={input} type="number" min="1" step="0.5" value={form.heightIn} onChange={(e) => set('heightIn', parseFloat(e.target.value) || 0)} required />
+          <label className={lbl}>Height (in) <span className="text-red">*</span></label>
+          <input className={parcelInput('heightIn')} type="number" min="1" step="0.5" placeholder="0" value={parcelText.heightIn} onChange={(e) => setParcel('heightIn', e.target.value)} required />
         </div>
         <div>
           <label className={lbl}>Value ($)</label>
           <input className={input} type="number" min="0" step="0.01" value={form.declaredValueUSD} onChange={(e) => set('declaredValueUSD', parseFloat(e.target.value) || 0)} />
         </div>
       </div>
+      {parcelMissing.length > 0 && (
+        <p className="mt-2 rounded-lg border border-red/30 bg-red/5 px-3 py-2 text-xs font-semibold text-red">
+          Weigh and measure the package first — enter the {describeMissing(parcelMissing)}.
+          Rates quoted on the wrong size or weight cost the shop the difference.
+        </p>
+      )}
 
       {/* Sender (exporter) — required on the commercial invoice */}
       <h2 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wider text-navy">

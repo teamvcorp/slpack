@@ -2,6 +2,12 @@
 
 import { useState, useRef, useEffect } from 'react';
 import IdentityVerifyModal from './IdentityVerifyModal';
+import {
+  missingParcelFields,
+  describeMissing,
+  withPackagingDims,
+  type ParcelField,
+} from '@/lib/parcelEntry';
 import type { ShipmentInput } from '../types/shipping';
 import type { IdCheck } from '@/lib/contacts';
 
@@ -67,10 +73,13 @@ const DEFAULTS: ShipmentInput = {
   destCountry: 'US',
   destAttention: '',
   residential: true,
-  weightLbs: 2,
-  lengthIn: 12,
-  widthIn: 9,
-  heightIn: 6,
+  // Deliberately ZERO, not a plausible package. A prefilled weight/size is never
+  // flagged by `required`, so staff were quoting the previous customer's numbers
+  // and we ate the difference on the carrier invoice. See lib/parcelEntry.ts.
+  weightLbs: 0,
+  lengthIn: 0,
+  widthIn: 0,
+  heightIn: 0,
   packaging: 'YOUR_PACKAGING',
   declaredValueUSD: 0,
   customerName: '',
@@ -102,6 +111,27 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
   const [addrError, setAddrError] = useState<string | null>(null);
   // Staff manually approved the address as-is (used when carriers can't confirm).
   const [addrApproved, setAddrApproved] = useState(false);
+
+  // ── Package weight / dimensions ──────────────────────────────────────────
+  // Raw text for the four numeric parcel fields, held ALONGSIDE the numeric form
+  // state rather than derived from it. Rendering `form.weightLbs` directly would
+  // round-trip every keystroke through parseFloat, so a half-typed "0." collapses
+  // to 0 and the box blanks itself — making 0.5 lb impossible to enter.
+  const [parcelText, setParcelText] = useState<Record<ParcelField, string>>({
+    weightLbs: '',
+    lengthIn: '',
+    widthIn: '',
+    heightIn: '',
+  });
+  // Fields flagged by the last blocked submit, so the eye lands on them.
+  const [parcelMissing, setParcelMissing] = useState<ParcelField[]>([]);
+
+  function setParcel(key: ParcelField, text: string) {
+    setParcelText((prev) => ({ ...prev, [key]: text }));
+    const n = parseFloat(text);
+    set(key, Number.isFinite(n) && n > 0 ? n : 0);
+    setParcelMissing((prev) => prev.filter((f) => f !== key));
+  }
 
   // ── Sender typeahead + ID verification ───────────────────────────────────
   const [senderId, setSenderId] = useState<string | null>(null);
@@ -135,7 +165,10 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
   // Keep the parent's shipment snapshot in sync with the live form, so fields
   // edited after "Compare" (recipient name/phone, etc.) still reach the label.
   useEffect(() => {
-    onChange?.(form);
+    // withPackagingDims here too, not just at submit: the page's snapshot feeds
+    // the cart and the label, and its rate signature must match the one Compare
+    // used or the stale-rate guard fires on a shipment nothing actually changed.
+    onChange?.(withPackagingDims(form));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
 
@@ -282,7 +315,16 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onSubmit(form);
+    // Belt and braces alongside the inputs' `required`: a zero can still reach
+    // here if the browser's native validation is bypassed, and quoting a package
+    // we haven't measured is exactly the mistake this screen is meant to prevent.
+    const missing = missingParcelFields(form);
+    if (missing.length > 0) {
+      setParcelMissing(missing);
+      return;
+    }
+    setParcelMissing([]);
+    onSubmit(withPackagingDims(form));
   }
 
   // Auto-populate city/state when ZIP is entered (UPS only — FedEx sandbox never returns suggested data)
@@ -406,6 +448,13 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
   const input =
     'w-full rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm text-navy placeholder-navy/30 focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue';
   const lbl = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-navy/50';
+
+  /** Parcel inputs turn red once a blocked submit has flagged them as empty. */
+  function parcelInput(key: ParcelField): string {
+    return parcelMissing.includes(key)
+      ? `${input} border-red ring-1 ring-red`
+      : input;
+  }
 
   /** Renders a typeahead suggestion dropdown. */
   function suggestionList(
@@ -694,14 +743,17 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
           </select>
         </div>
         <div>
-          <label className={lbl}>Weight (lbs)</label>
+          <label className={lbl}>
+            Weight (lbs) <span className="text-red">*</span>
+          </label>
           <input
-            className={input}
+            className={parcelInput('weightLbs')}
             type="number"
             min="0.1"
             step="0.1"
-            value={form.weightLbs}
-            onChange={(e) => set('weightLbs', parseFloat(e.target.value) || 0)}
+            value={parcelText.weightLbs}
+            onChange={(e) => setParcel('weightLbs', e.target.value)}
+            placeholder="0.0"
             required
           />
         </div>
@@ -710,38 +762,47 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
         {form.packaging !== 'FEDEX_ENVELOPE' && (
           <>
             <div>
-              <label className={lbl}>Length (in)</label>
+              <label className={lbl}>
+                Length (in) <span className="text-red">*</span>
+              </label>
               <input
-                className={input}
+                className={parcelInput('lengthIn')}
                 type="number"
                 min="1"
                 step="0.5"
-                value={form.lengthIn}
-                onChange={(e) => set('lengthIn', parseFloat(e.target.value) || 0)}
+                value={parcelText.lengthIn}
+                onChange={(e) => setParcel('lengthIn', e.target.value)}
+                placeholder="0"
                 required
               />
             </div>
             <div>
-              <label className={lbl}>Width (in)</label>
+              <label className={lbl}>
+                Width (in) <span className="text-red">*</span>
+              </label>
               <input
-                className={input}
+                className={parcelInput('widthIn')}
                 type="number"
                 min="1"
                 step="0.5"
-                value={form.widthIn}
-                onChange={(e) => set('widthIn', parseFloat(e.target.value) || 0)}
+                value={parcelText.widthIn}
+                onChange={(e) => setParcel('widthIn', e.target.value)}
+                placeholder="0"
                 required
               />
             </div>
             <div>
-              <label className={lbl}>Height (in)</label>
+              <label className={lbl}>
+                Height (in) <span className="text-red">*</span>
+              </label>
               <input
-                className={input}
+                className={parcelInput('heightIn')}
                 type="number"
                 min="1"
                 step="0.5"
-                value={form.heightIn}
-                onChange={(e) => set('heightIn', parseFloat(e.target.value) || 0)}
+                value={parcelText.heightIn}
+                onChange={(e) => setParcel('heightIn', e.target.value)}
+                placeholder="0"
                 required
               />
             </div>
@@ -759,6 +820,15 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
           />
         </div>
       </div>
+      {/* Blocked submit — the carrier bills on the real parcel, so quoting an
+          unmeasured one is money out the door. */}
+      {parcelMissing.length > 0 && (
+        <p className="mt-2 rounded-lg border border-red/30 bg-red/5 px-3 py-2 text-xs font-semibold text-red">
+          Weigh and measure the package first — enter the {describeMissing(parcelMissing)}.
+          Rates quoted on the wrong size or weight cost the shop the difference.
+        </p>
+      )}
+
       {form.packaging === 'FEDEX_ENVELOPE' && (
         <p className="mt-2 rounded-lg border border-[#FF6600]/30 bg-[#FF6600]/5 px-3 py-2 text-[11px] text-navy/70">
           <strong>FedEx Envelope</strong> — FedEx Express services only; the envelope rate
