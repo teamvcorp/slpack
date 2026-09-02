@@ -3,6 +3,7 @@ import type { DropoffRecord, DropoffPeriod } from '@/app/admin/types/dropoff';
 import type { ShipmentLogEntry, CarrierKey } from '@/app/admin/types/shipping';
 import { DROPOFF_CARRIER_LABELS, trackingUrl } from '@/lib/dropoff';
 import { SITE } from '@/lib/siteConfig';
+import { SIGNATURE_LABELS } from '@/lib/signatureOption';
 
 const SHOP_NAME = 'Storm Lake Pack & Ship';
 const SHOP_SLOGAN = 'Shipping made easy';
@@ -287,6 +288,12 @@ export function buildShipmentReceiptHtml(entry: ShipmentLogEntry): string {
     (entry.packingFeeUSD ?? 0) > 0
       ? `<tr><td style="padding:4px 0;color:#666;">Packing fee</td><td style="padding:4px 0;text-align:right;">${money(entry.packingFeeUSD ?? 0)}</td></tr>`
       : '';
+  // Signature confirmation carries no separate line item — the fee is inside the
+  // freight charge — so this is the customer's only proof they bought it.
+  const sigRow =
+    entry.signature && entry.signature !== 'none'
+      ? `<tr><td style="padding:4px 0;color:#666;">Signature</td><td style="padding:4px 0;text-align:right;">${esc(SIGNATURE_LABELS[entry.signature])}</td></tr>`
+      : '';
   const dutiesRow =
     (entry.dutiesUSD ?? 0) > 0
       ? `<tr><td style="padding:4px 0;color:#666;">Prepaid duties</td><td style="padding:4px 0;text-align:right;">${money(entry.dutiesUSD ?? 0)}</td></tr>`
@@ -330,6 +337,7 @@ export function buildShipmentReceiptHtml(entry: ShipmentLogEntry): string {
         <tr><td style="padding:4px 0;color:#666;">To</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${toLine}</td></tr>
         ${attnRow}
         <tr><td style="padding:4px 0;color:#666;">Weight</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${entry.weightLbs} lbs</td></tr>
+        ${sigRow}
         <tr style="border-top:1px solid #eee;"><td style="padding:8px 0 4px;color:#666;">Shipping</td><td style="padding:8px 0 4px;text-align:right;">${money(entry.shippingUSD)}</td></tr>
         ${insRow}
         ${insDescRow}

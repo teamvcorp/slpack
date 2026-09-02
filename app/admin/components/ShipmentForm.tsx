@@ -8,6 +8,11 @@ import {
   withPackagingDims,
   type ParcelField,
 } from '@/lib/parcelEntry';
+import {
+  SIGNATURE_LABELS,
+  SIGNATURE_OPTIONS,
+  type SignatureOption,
+} from '@/lib/signatureOption';
 import type { ShipmentInput } from '../types/shipping';
 import type { IdCheck } from '@/lib/contacts';
 
@@ -81,6 +86,7 @@ const DEFAULTS: ShipmentInput = {
   widthIn: 0,
   heightIn: 0,
   packaging: 'YOUR_PACKAGING',
+  signature: 'none',
   declaredValueUSD: 0,
   customerName: '',
   customerPhone: '',
@@ -809,6 +815,18 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
           </>
         )}
         <div>
+          <label className={lbl}>Signature</label>
+          <select
+            className={input}
+            value={form.signature ?? 'none'}
+            onChange={(e) => set('signature', e.target.value as SignatureOption)}
+          >
+            {SIGNATURE_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>{SIGNATURE_LABELS[opt]}</option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className={lbl}>Value ($)</label>
           <input
             className={input}
@@ -820,6 +838,13 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
           />
         </div>
       </div>
+      {(form.signature ?? 'none') !== 'none' && (
+        <p className="mt-2 rounded-lg border border-navy/15 bg-cream px-3 py-2 text-[11px] text-navy/70">
+          <strong>{SIGNATURE_LABELS[form.signature ?? 'none']}</strong> — UPS and FedEx charge a fee
+          for this, and it is <strong>already included</strong> in the prices shown below. USPS and
+          DHL quotes are unaffected. Re-compare after changing this.
+        </p>
+      )}
       {/* Blocked submit — the carrier bills on the real parcel, so quoting an
           unmeasured one is money out the door. */}
       {parcelMissing.length > 0 && (

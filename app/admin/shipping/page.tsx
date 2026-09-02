@@ -184,6 +184,9 @@ export default function ShippingComparisonPage() {
       s.residential, s.weightLbs, s.lengthIn, s.widthIn, s.heightIn,
       // Packaging changes FedEx pricing (envelope vs own box) — stale otherwise.
       s.packaging ?? 'YOUR_PACKAGING',
+      // Signature adds a carrier surcharge, so changing it after Compare leaves
+      // a price on screen that doesn't include the fee.
+      s.signature ?? 'none',
     ]);
   }
 

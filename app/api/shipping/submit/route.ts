@@ -8,6 +8,7 @@ import { INTERNAL_HEADER, internalApiToken } from '@/lib/internalAuth';
 import { upsertContacts } from '@/lib/contacts';
 import { buildShipmentReceiptHtml } from '@/lib/receipt';
 import { priceInsurance } from '@/lib/shippingPricing';
+import { normalizeSignature } from '@/lib/signatureOption';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
 
 const ROUTE = 'shipping/submit';
@@ -206,6 +207,11 @@ export async function POST(req: NextRequest) {
       insuranceDescription: pricedInsurance.description,
       paymentMethod: (paymentMethod === 'cash' ? 'cash' : 'card') as 'card' | 'cash',
       saturdayDelivery: saturdayDelivery === true ? true : undefined,
+      // Read off the shipment (which submit already forwards whole to the label
+      // route), whitelisted the same way the label route does it.
+      signature: normalizeSignature(shipment?.signature) === 'none'
+        ? undefined
+        : normalizeSignature(shipment?.signature),
       transactionId: typeof transactionId === 'string' ? transactionId : undefined,
     };
 

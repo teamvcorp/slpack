@@ -5,6 +5,7 @@ import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { formatDeliveryDate, isSaturdayDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
+import { normalizeSignature, upsDeliveryConfirmation } from '@/lib/signatureOption';
 
 const ROUTE = 'shipping/ups';
 
@@ -43,9 +44,12 @@ export async function POST(req: NextRequest) {
 
     const {
       originZip, destZip, destCity, destState, destCountry, residential,
-      weightLbs, lengthIn, widthIn, heightIn,
+      weightLbs, lengthIn, widthIn, heightIn, signature,
     } = await req.json();
-    requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn };
+    // Signature carries a carrier surcharge, so it must be priced HERE and not
+    // only on the label — otherwise the fee lands on the invoice uncollected.
+    const signatureOption = normalizeSignature(signature);
+    requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn, signature: signatureOption };
 
     const token = await getUpsToken();
 
@@ -54,6 +58,9 @@ export async function POST(req: NextRequest) {
     const pad = (n: number) => String(n).padStart(2, '0');
     const pickupDate = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
     const pickupTime = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+    const upsDCISInner = upsDeliveryConfirmation(signatureOption);
+    const upsDCIS = Object.keys(upsDCISInner).length > 0 ? upsDCISInner : null;
 
     // Shoptimeintransit returns rates AND transit times for all available
     // services — INCLUDING Saturday-delivery variants as DUPLICATE service
@@ -124,6 +131,10 @@ export async function POST(req: NextRequest) {
               UnitOfMeasurement: { Code: 'LBS', Description: 'Pounds' },
               Weight: String(weightLbs),
             },
+            // Domestic US signature is PACKAGE level (DCISType 2 = signature,
+            // 3 = adult), unlike the shipment-level Saturday indicator. Omitted
+            // entirely when no signature is wanted so the quote is unchanged.
+            ...(upsDCIS ? { PackageServiceOptions: upsDCIS } : {}),
           },
         },
       },

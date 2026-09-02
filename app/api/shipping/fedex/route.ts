@@ -4,6 +4,7 @@ import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
 import { fedexTransitToDays, formatDeliveryDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
+import { normalizeSignature, fedexSignatureBlock } from '@/lib/signatureOption';
 import { localDateStamp } from '@/lib/localDate';
 
 const ROUTE = 'shipping/fedex';
@@ -26,14 +27,19 @@ export async function POST(req: NextRequest) {
 
     const {
       originZip, destZip, destCountry, residential,
-      weightLbs, lengthIn, widthIn, heightIn, packaging,
+      weightLbs, lengthIn, widthIn, heightIn, packaging, signature,
     } = await req.json();
-    requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn, packaging };
+    requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn, packaging, signature };
 
     // Whitelist the packaging type — never pass a client string straight to the
     // carrier. FEDEX_ENVELOPE = FedEx's own envelope (cheaper document rate,
     // Express services only); anything else rates as our own packaging.
     const fedexPackaging = packaging === 'FEDEX_ENVELOPE' ? 'FEDEX_ENVELOPE' : 'YOUR_PACKAGING';
+
+    // Signature carries a carrier surcharge, so it is priced HERE as well as on
+    // the label — quoting without it would leave the fee on the invoice with
+    // nothing collected against it. Whitelisted, never passed verbatim.
+    const signatureOption = normalizeSignature(signature);
 
     const token = await getFedexToken();
 
@@ -90,6 +96,9 @@ export async function POST(req: NextRequest) {
                   },
                 }
               : {}),
+            // signatureOptionType and specialServiceTypes must travel TOGETHER;
+            // either alone returns "Special service SIGNATURE_OPTION is invalid".
+            ...fedexSignatureBlock(signatureOption),
           },
         ],
       },

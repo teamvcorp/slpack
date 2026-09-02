@@ -162,3 +162,63 @@ price     = max(listPrice, costBasis + 5)   // carrierAnchoredPrice() - full car
   <https://github.com/UPS-API/api-documentation/blob/main/Rating.yaml>
 - UPS Rating business rules — <https://developer.ups.com/api/reference/rating/business-rules>
   (returned a connection error on 2026-08-24; retry when verifying)
+
+---
+
+## 7. Signature confirmation
+
+**Verified 2026-09-02.** Offered as three levels (`lib/signatureOption.ts`): `none`, `signature`,
+`adult`. Lives on `ShipmentInput`, not `ShippingRate`, because it applies to every service equally —
+which is also why it needs no checkout/submit plumbing: `submit` already forwards the whole
+`shipment` object to the label route.
+
+### It MUST be on the rate request, not only the label
+
+Signature is a paid add-on (roughly $7-9, more for adult). Booking it on a label that was quoted
+without it puts the surcharge on the weekly invoice with nothing collected against it. Sent at rate
+time it lands inside `totalChargeUSD` **and** `listPriceUSD` (carriers surcharge both price books),
+so `carrierAnchoredPrice()` prices it correctly with no pricing change.
+
+`rateSignature()` in `app/admin/shipping/page.tsx` includes it, so changing the dropdown after
+Compare clears the quote instead of leaving a price that excludes the fee.
+
+### UPS — `DeliveryConfirmation.DCISType`
+
+| DCISType | Meaning |
+|---|---|
+| `1` | Delivery Confirmation, no signature — **not offered** (different product) |
+| `2` | Signature Required |
+| `3` | Adult Signature Required |
+
+Domestic US goes at **package** level: `Package.PackageServiceOptions.DeliveryConfirmation`. This is
+NOT the shipment-level `ShipmentServiceOptions` that Saturday delivery uses.
+
+> ⚠️ **The merge trap.** Declared-value insurance writes to the same `PackageServiceOptions` key.
+> The label route builds ONE inner object from both flags and wraps it once. Spreading two separate
+> `{ PackageServiceOptions: … }` objects silently drops whichever comes first, so an insured
+> signature-required parcel would lose its declared value or its signature with **no error from
+> UPS**. Covered by fixtures in the scratch harness.
+
+### FedEx — `packageSpecialServices` on the package line item
+
+```jsonc
+"packageSpecialServices": {
+  "specialServiceTypes": ["SIGNATURE_OPTION"],
+  "signatureOptionType": "DIRECT"   // or "ADULT"
+}
+```
+
+Both fields travel **together**; either alone returns *"Special service SIGNATURE_OPTION is
+invalid"*. `INDIRECT` exists but is residential-only at FedEx, so it is not offered — it would have
+to hide itself based on the `residential` toggle or labels fail.
+
+### Not wired up
+
+- **International.** UPS puts cross-border signature under the *shipment*-level
+  `ShipmentServiceOptions.DeliveryConfirmation` with `DCISType` values that appear to differ from the
+  domestic 1/2/3, unconfirmed against official docs. FedEx's side is the same shape and needs no new
+  work. Verify in sandbox before enabling.
+- **USPS and DHL** never receive the field and are unchanged.
+
+Sources: [UPS Ship API](https://developer.ups.com/api/reference?loc=en_US&tag=Shipping),
+[FedEx Ship API](https://developer.fedex.com/api/en-us/catalog/ship/docs.html).

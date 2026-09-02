@@ -1,3 +1,5 @@
+import type { SignatureOption } from '@/lib/signatureOption';
+
 /** Packaging the customer's item ships in. FedEx-only for now: FEDEX_ENVELOPE
  *  gets FedEx's (cheaper) envelope pricing — Express services only, envelope
  *  rate applies up to 8 oz, dimensions omitted (FedEx knows its own packaging).
@@ -26,6 +28,13 @@ export interface ShipmentInput {
   heightIn: number;
   /** Optional packaging selection (see PackagingType). Undefined = your own box. */
   packaging?: PackagingType;
+  /** Signature confirmation level (see lib/signatureOption.ts). Undefined = none.
+   *  Carries a carrier surcharge, so it MUST be sent on the rate request as well
+   *  as the label or the fee arrives on the invoice uncollected. Lives on the
+   *  shipment rather than the rate because it applies to every service equally —
+   *  which is also why it needs no checkout/submit plumbing: submit forwards the
+   *  whole shipment object to the label route. */
+  signature?: SignatureOption;
   declaredValueUSD: number;
   /** Recipient (ship-to) contact */
   customerName: string;
@@ -210,6 +219,10 @@ export interface ShipmentLogEntry {
   paymentMethod?: 'card' | 'cash';
   /** True when the label was booked with the carrier's Saturday-delivery service */
   saturdayDelivery?: boolean;
+  /** Signature confirmation booked on this label. Recorded because it is the
+   *  first question asked when a delivery is disputed, and the log is the only
+   *  place the answer survives. Absent = none. */
+  signature?: SignatureOption;
   /** Ties this shipment to a combined register+shipping transaction (one charge, one receipt) */
   transactionId?: string;
   /** Sender info captured when creating the shipment (for re-creating ship-from contact) */

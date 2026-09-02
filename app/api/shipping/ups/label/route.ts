@@ -3,6 +3,7 @@ import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
+import { normalizeSignature, upsDeliveryConfirmation } from '@/lib/signatureOption';
 import { upsActualCostUSD } from '@/lib/carrierCost';
 
 const ROUTE = 'shipping/ups/label';
@@ -36,6 +37,8 @@ export async function POST(req: NextRequest) {
     // Strict-boolean coerce (never trust client strings), then whitelist-gate.
     const saturdayEligible =
       saturdayDelivery === true && SATURDAY_ELIGIBLE_SERVICES.has(String(serviceCode));
+    // Whitelisted, never taken verbatim — this selection changes what UPS bills us.
+    const signatureOption = normalizeSignature(shipment?.signature);
 
     requestSummary = {
       serviceCode,
@@ -65,19 +68,30 @@ export async function POST(req: NextRequest) {
       Height: String(shipment.heightIn),
     };
 
-    // Declared value goes under PackageServiceOptions.DeclaredValue in the UPS
-    // Ship API (NOT a bare InsuredValue on the package — UPS ignores that).
-    // Type defaults to 01 (EVS). This is what makes UPS actually cover the value.
-    const packageServiceOptions =
-      insurance?.enabled && insurance?.valueUSD > 0
+    // Declared value AND signature confirmation both live under the SAME
+    // PackageServiceOptions key, so they must be merged into one inner object
+    // and wrapped once. Spreading two separate `{ PackageServiceOptions: … }`
+    // objects would silently drop whichever came first — an insured, signature-
+    // required parcel would lose one of the two with no error from UPS.
+    //
+    // DeclaredValue (NOT a bare InsuredValue — UPS ignores that) defaults to
+    // type 01 (EVS) and is what makes UPS actually cover the value.
+    // DeliveryConfirmation.DCISType is 2 = signature, 3 = adult; domestic US is
+    // package level, unlike the shipment-level Saturday indicator below.
+    const serviceOptionsInner: Record<string, unknown> = {
+      ...(insurance?.enabled && insurance?.valueUSD > 0
         ? {
-            PackageServiceOptions: {
-              DeclaredValue: {
-                CurrencyCode: 'USD',
-                MonetaryValue: String(insurance.valueUSD.toFixed(2)),
-              },
+            DeclaredValue: {
+              CurrencyCode: 'USD',
+              MonetaryValue: String(insurance.valueUSD.toFixed(2)),
             },
           }
+        : {}),
+      ...upsDeliveryConfirmation(signatureOption),
+    };
+    const packageServiceOptions =
+      Object.keys(serviceOptionsInner).length > 0
+        ? { PackageServiceOptions: serviceOptionsInner }
         : {};
 
     const payload = {

@@ -3,6 +3,7 @@ import { logAndRespond } from '@/lib/apiErrors';
 import { getFedexToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
+import { normalizeSignature, fedexSignatureBlock } from '@/lib/signatureOption';
 import { localDateStamp } from '@/lib/localDate';
 import { fedexActualCostUSD } from '@/lib/carrierCost';
 
@@ -47,6 +48,8 @@ export async function POST(req: NextRequest) {
     // Strict-boolean coerce (never trust client strings like "false"), then
     // gate on the eligible-service whitelist above.
     const saturdayRequested = saturdayDelivery === true;
+    // Whitelisted, never verbatim — this selection changes what FedEx bills us.
+    const signatureOption = normalizeSignature(shipment?.signature);
     const saturdayEligible =
       saturdayRequested && SATURDAY_ELIGIBLE_SERVICES.has(String(serviceCode));
 
@@ -169,6 +172,9 @@ export async function POST(req: NextRequest) {
                 }
               : {}),
             ...declaredValue,
+            // Must match what the rate quote asked for, or we charge for a
+            // signature the label never books. Both fields travel together.
+            ...fedexSignatureBlock(signatureOption),
           },
         ],
       },
