@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
+import { appendError } from '@/lib/errorLog';
+import { hit } from '@/lib/rateLimit';
 import { serverBuildId } from '@/lib/appVersion';
 import { logAndRespond } from '@/lib/apiErrors';
 import { getUpsToken } from '@/lib/carrierTokens';
@@ -208,21 +211,89 @@ export async function POST(req: NextRequest) {
     // Simple Rate cost per service code. Empty whenever the parcel doesn't
     // qualify or UPS refused — the merge below then simply finds nothing.
     const simpleCostByService = new Map<string, number>();
-    if (simple.eligible && simpleRes.status === 'fulfilled' && simpleRes.value.ok) {
+
+    /**
+     * Record a Simple Rate problem without disturbing the quote.
+     *
+     * The Simple Rate call is deliberately allowed to fail — it must never blank
+     * the UPS panel — but that made "UPS refused the request" look identical to
+     * "the flat rate simply wasn't cheaper", so a shop could lose the saving on
+     * every parcel and never know.
+     *
+     * Throttled to the FIRST occurrence per hour: when Simple Rate is
+     * unavailable it fails on every eligible quote, and an error log flooded
+     * with one repeated entry is as useless as no entry at all.
+     */
+    async function noteSimpleRateProblem(
+      message: string,
+      upstreamStatus?: number,
+      upstreamBody?: string
+    ): Promise<void> {
       try {
-        const simpleData = await simpleRes.value.json();
-        const simpleRaw = simpleData?.RateResponse?.RatedShipment ?? [];
-        for (const sr of (Array.isArray(simpleRaw) ? simpleRaw : [simpleRaw]) as Record<string, unknown>[]) {
-          const code = (sr.Service as Record<string, string>)?.Code ?? '';
-          if (!isSimpleRateService(code)) continue;
-          const negotiated = (sr.NegotiatedRateCharges as Record<string, Record<string, string>> | undefined)
-            ?.TotalCharge?.MonetaryValue;
-          const total = (sr.TotalCharges as Record<string, string> | undefined)?.MonetaryValue;
-          const cost = parseFloat(negotiated ?? total ?? '');
-          if (Number.isFinite(cost) && cost > 0) simpleCostByService.set(code, cost);
-        }
+        if ((await hit('ups-simple-rate-unavailable', 60 * 60 * 1000)) !== 1) return;
+        await appendError({
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          route: `${ROUTE}/simple-rate`,
+          carrier: 'ups',
+          status: 200, // the quote itself succeeded
+          message,
+          ...(upstreamStatus ? { upstreamStatus } : {}),
+          ...(upstreamBody ? { upstreamBody: upstreamBody.slice(0, 2000) } : {}),
+          requestSummary: {
+            simpleRateTier: simple.tier,
+            cubicIn: simple.cubicIn,
+            weightLbs,
+            destZip,
+            note: 'Quote unaffected — the standard UPS rates returned normally.',
+          },
+        });
       } catch {
-        // Malformed Simple Rate reply — fall through with an empty map.
+        // Diagnostics must never break a counter quote.
+      }
+    }
+
+    if (simple.eligible) {
+      if (simpleRes.status !== 'fulfilled') {
+        await noteSimpleRateProblem(
+          `UPS Simple Rate request did not complete (${String(simpleRes.reason)}). ` +
+            'No shipment can earn the flat-rate saving until this clears.'
+        );
+      } else if (!simpleRes.value.ok) {
+        const body = await simpleRes.value.text().catch(() => '');
+        await noteSimpleRateProblem(
+          `UPS REFUSED the Simple Rate request (${simpleRes.value.status}). Simple Rate needs no ` +
+            'enrollment, so this is usually the request shape, the declared tier, or the lane — ' +
+            'see the upstream body. Standard rates are unaffected, but every eligible parcel is ' +
+            'being booked at the dearer standard rate.',
+          simpleRes.value.status,
+          body
+        );
+      } else {
+        try {
+          const simpleData = await simpleRes.value.json();
+          const simpleRaw = simpleData?.RateResponse?.RatedShipment ?? [];
+          for (const sr of (Array.isArray(simpleRaw) ? simpleRaw : [simpleRaw]) as Record<string, unknown>[]) {
+            const code = (sr.Service as Record<string, string>)?.Code ?? '';
+            if (!isSimpleRateService(code)) continue;
+            const negotiated = (sr.NegotiatedRateCharges as Record<string, Record<string, string>> | undefined)
+              ?.TotalCharge?.MonetaryValue;
+            const total = (sr.TotalCharges as Record<string, string> | undefined)?.MonetaryValue;
+            const cost = parseFloat(negotiated ?? total ?? '');
+            if (Number.isFinite(cost) && cost > 0) simpleCostByService.set(code, cost);
+          }
+          if (simpleCostByService.size === 0) {
+            await noteSimpleRateProblem(
+              'UPS accepted the Simple Rate request but returned no priced eligible service ' +
+                '(Ground / 2nd Day Air / 3 Day Select / Next Day Air Saver). Either the lane does ' +
+                'not support it or the account cannot see Simple Rate pricing.'
+            );
+          }
+        } catch (err: unknown) {
+          await noteSimpleRateProblem(
+            `Could not read the UPS Simple Rate reply (${err instanceof Error ? err.message : 'parse error'}).`
+          );
+        }
       }
     }
 
