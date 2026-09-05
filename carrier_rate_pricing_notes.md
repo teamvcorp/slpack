@@ -222,3 +222,79 @@ to hide itself based on the `residential` toggle or labels fail.
 
 Sources: [UPS Ship API](https://developer.ups.com/api/reference?loc=en_US&tag=Shipping),
 [FedEx Ship API](https://developer.fedex.com/api/en-us/catalog/ship/docs.html).
+
+---
+
+## 8. UPS Simple Rate
+
+**Verified 2026-09-05.** Implementation in `lib/upsSimpleRate.ts`.
+
+Simple Rate is **not a different service** — it is a different way UPS bills *us* for the same
+UPS Ground / 3 Day Select / 2nd Day Air / Next Day Air Saver. Identical transit, identical tracking,
+identical customer experience. Flat price by **cubic-volume tier**, our own packaging, any US zone,
+up to 50 lb. It is **exempt from residential, delivery-area, delivery-area-extended and fuel
+surcharges** — the fees that inflate a residential ground quote here.
+
+So it is used as a **silent cost optimization**: quote and charge carrier retail exactly as before;
+when Simple Rate is cheaper for that parcel, book the label flat and keep the difference.
+
+### Tiers
+
+| Tier | Cubic inches |
+|---|---|
+| `XS` | 1 – 100 |
+| `S` | 101 – 250 |
+| `M` | 251 – 650 |
+| `L` | 651 – 1,050 |
+| `XL` | 1,051 – 1,728 |
+
+Eligible services: **`03`** Ground, **`02`** 2nd Day Air, **`12`** 3 Day Select, **`13`** Next Day
+Air Saver. NOT `01` Next Day Air, `14` Next Day Air Early, `59` 2nd Day Air A.M., nor international.
+
+### Request shape (Rating and Ship alike)
+
+```jsonc
+"Shipment": {
+  "NumOfPieces": "1",
+  "Package": {
+    "SimpleRate": { "Code": "M", "Description": "Simple Rate" },
+    "PackagingType": { "Code": "02" }
+  }
+}
+```
+
+Confirmed against the official `Rating.yaml` Simple Rate example. `SimpleRate` is a **sibling** of
+`PackageServiceOptions`, so declared value and signature are unaffected.
+
+### Rules that keep it from costing money
+
+- **Compared, never assumed.** Simple Rate is *dearer* than standard on light, short-zone parcels —
+  a 1 lb zone-2 Ground beats XS routinely. `app/api/shipping/ups/route.ts` makes a **second rate
+  call** in parallel (`Promise.allSettled`, so a failure degrades to normal behaviour) and attaches
+  `simpleRate` to a rate **only when the flat cost is lower**. Saturday rows are excluded — Simple
+  Rate has no Saturday variant.
+- **Tiers classify on CEIL-ROUNDED dimensions.** UPS measures the box at the hub, so a 4.6″ side
+  becomes 5″: a 97 in³ parcel that looks `XS` is really 125 in³ and bills `S`. Reuses
+  `roundDimsForRating(dims, 'ceil')`. A tier declared too small is re-rated and billed back weeks
+  later with nothing collected against it.
+- **`nearBoundary`** flags a parcel within 5% of its tier cap so staff re-measure before taping.
+- **The tier is re-validated server-side** in the label route from the shipment itself; a browser
+  tier that disagrees is discarded and the label books standard.
+- **Re-rate detection:** `submit` logs when a Simple Rate label's billed cost exceeds the tier price
+  we quoted — the early warning that the maths or the measuring is off.
+
+> ⚠️ **THE MONEY RULE.** The Simple Rate figure must **never** be written to `listPriceUSD` or
+> `costBasisUSD`. It is a shipper-program cost, not a retail counter price a customer could walk in
+> and pay, so it is not a competitive ceiling. Feeding it into `carrierAnchoredPrice()` would
+> collapse the customer's charge to about cost + the $5 floor. Both fields stay on the **standard**
+> service's numbers: price unchanged, booked cost lower, margin larger.
+
+> ⚠️ **Unverified.** Sources disagree on whether tiers are pure cubic volume or also carry a
+> max-longest-side (XS ≤13″, S ≤16″, M ≤20″, L ≤24″, XL ≤30″), and on a possible 64 in³ minimum.
+> Confirm against the UPS rate guide; if a length cap exists, add it to `simpleRateEligibility()`.
+
+UPS forbids mixing Simple Rate and standard packages in **one shipment**. Not a constraint here —
+the cart books one shipment per package — but don't batch them later.
+
+Sources: [UPS Flat Rate](https://www.ups.com/us/en/support/shipping-support/shipping-costs-rates/flat-rate-shipping),
+[UPS Rating.yaml](https://github.com/UPS-API/api-documentation/blob/main/Rating.yaml).

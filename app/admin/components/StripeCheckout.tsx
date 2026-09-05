@@ -47,6 +47,11 @@ async function submitItem(
       // hand — both logged so the margin report can tell a judgement call from
       // a mispriced quote.
       listPriceUSD: item.rate.listPriceUSD,
+      // Present only when UPS Simple Rate beat the standard cost for this
+      // parcel. Must reach the label route or we quote the saving and
+      // then book (and pay) the standard rate anyway.
+      simpleRateTier: item.rate.simpleRate?.tier,
+      simpleRateQuotedUSD: item.rate.simpleRate?.costUSD,
       priceOverridden: item.priceOverridden === true,
       shipment: item.shipment,
       shippingUSD,

@@ -4,6 +4,7 @@ import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
 import { normalizeSignature, upsDeliveryConfirmation } from '@/lib/signatureOption';
+import { normalizeSimpleRateTier, simpleRateEligibility } from '@/lib/upsSimpleRate';
 import { upsActualCostUSD } from '@/lib/carrierCost';
 
 const ROUTE = 'shipping/ups/label';
@@ -32,13 +33,24 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { shipment, serviceCode, insurance, saturdayDelivery } = await req.json();
+    const { shipment, serviceCode, insurance, saturdayDelivery, simpleRateTier } = await req.json();
 
     // Strict-boolean coerce (never trust client strings), then whitelist-gate.
     const saturdayEligible =
       saturdayDelivery === true && SATURDAY_ELIGIBLE_SERVICES.has(String(serviceCode));
     // Whitelisted, never taken verbatim — this selection changes what UPS bills us.
     const signatureOption = normalizeSignature(shipment?.signature);
+
+    // Simple Rate: the browser tells us which tier won the comparison, but the
+    // tier itself is RECOMPUTED from the shipment here. A tier that disagrees
+    // with the parcel is discarded and the label books standard — declaring a
+    // tier smaller than the box gets re-rated and billed back weeks later.
+    // NOTE UPS forbids mixing Simple Rate and standard packages in one shipment;
+    // safe here because the cart books one shipment per package. Don't batch.
+    const requestedTier = normalizeSimpleRateTier(simpleRateTier);
+    const simple = simpleRateEligibility(shipment ?? {});
+    const simpleRateCode =
+      requestedTier && simple.eligible && simple.tier === requestedTier ? requestedTier : null;
 
     requestSummary = {
       serviceCode,
@@ -52,6 +64,8 @@ export async function POST(req: NextRequest) {
       widthIn: shipment?.widthIn,
       heightIn: shipment?.heightIn,
       insured: Boolean(insurance?.enabled),
+      simpleRateTier: simpleRateCode,
+      simpleRateCubicIn: simple.cubicIn,
     };
 
     const token = await getUpsToken();
@@ -153,8 +167,16 @@ export async function POST(req: NextRequest) {
             ? { ShipmentServiceOptions: { SaturdayDeliveryIndicator: '' } }
             : {}),
           Service: { Code: serviceCode ?? '03', Description: 'Service' },
+          // Simple Rate needs NumOfPieces at shipment level alongside
+          // Package.SimpleRate, per the Rating/Ship API examples.
+          ...(simpleRateCode ? { NumOfPieces: '1' } : {}),
           Package: [
             {
+              // A sibling of PackageServiceOptions, not part of it — no repeat
+              // of the declared-value/signature merge trap.
+              ...(simpleRateCode
+                ? { SimpleRate: { Code: simpleRateCode, Description: 'Simple Rate' } }
+                : {}),
               Packaging: { Code: '02' },
               Dimensions: packageDims,
               PackageWeight: packageWeight,

@@ -136,6 +136,11 @@ export default function CombinedCheckout({
           // The carrier's own published retail, and whether staff set the price
           // by hand — both logged for the margin report.
           listPriceUSD: item.rate.listPriceUSD,
+          // Present only when UPS Simple Rate beat the standard cost for this
+          // parcel. Must reach the label route or we quote the saving and
+          // then book (and pay) the standard rate anyway.
+          simpleRateTier: item.rate.simpleRate?.tier,
+          simpleRateQuotedUSD: item.rate.simpleRate?.costUSD,
           priceOverridden: item.priceOverridden === true,
           shipment: item.shipment,
           shippingUSD: shippingUSDItem,

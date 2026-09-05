@@ -1,4 +1,5 @@
 import type { SignatureOption } from '@/lib/signatureOption';
+import type { SimpleRateTier } from '@/lib/upsSimpleRate';
 
 /** Packaging the customer's item ships in. FedEx-only for now: FEDEX_ENVELOPE
  *  gets FedEx's (cheaper) envelope pricing — Express services only, envelope
@@ -93,6 +94,21 @@ export interface ShippingRate {
    *  modal and the cart all price off ONE number — a panel showing a price the
    *  modal disagrees with is worse than either being wrong alone. */
   costBasisUSD?: number;
+  /** UPS Simple Rate is cheaper than this service's standard rate for this
+   *  parcel — present ONLY when it wins, so its mere existence means "book it".
+   *
+   *  Simple Rate is the same service to the customer; it only changes what UPS
+   *  bills us. costUSD therefore feeds nothing customer-facing: it must NEVER be
+   *  written to listPriceUSD or costBasisUSD, because a flat shipper-program
+   *  price is not a retail counter price and using it as the pricing anchor
+   *  would collapse the charge to roughly cost + the margin floor. */
+  simpleRate?: {
+    tier: SimpleRateTier;
+    /** What UPS would bill us on the flat rate — lower than the standard cost. */
+    costUSD: number;
+    /** Parcel is within 5% of the tier cap; re-measure before taping. */
+    nearBoundary: boolean;
+  };
 }
 
 /** Which carrier price book a quote came from — see ShippingRate.rateSource. */
@@ -223,6 +239,9 @@ export interface ShipmentLogEntry {
    *  first question asked when a delivery is disputed, and the log is the only
    *  place the answer survives. Absent = none. */
   signature?: SignatureOption;
+  /** UPS Simple Rate tier the label was booked under, when it was. Recorded so a
+   *  carrier re-rate can be traced back to the declared tier. */
+  simpleRateTier?: SimpleRateTier;
   /** Ties this shipment to a combined register+shipping transaction (one charge, one receipt) */
   transactionId?: string;
   /** Sender info captured when creating the shipment (for re-creating ship-from contact) */

@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { mergeIntoShippingDraft } from '@/lib/shippingDraft';
+import { simpleRateEligibility } from '@/lib/upsSimpleRate';
 import {
   DEFAULT_PACKING_RATES,
   calculateBox,
@@ -34,6 +37,7 @@ import {
  * useMemo on each keystroke — no debounce, no effect, no loading state.
  */
 export default function BoxSizePage() {
+  const router = useRouter();
   const [form, setForm] = useState<BoxFormState>(INITIAL_FORM);
   const [liveCheapestUSD, setLiveCheapestUSD] = useState<number | null>(null);
   /** Shop packing rates from Settings; the shipped defaults until they load. */
@@ -94,6 +98,7 @@ export default function BoxSizePage() {
         </div>
 
         <div className="space-y-5">
+          {result.ok && <SimpleRateHandoff grossDims={result.grossDims} router={router} />}
           <ResultSummary result={result} />
           <PackingPriceCard price={result.packingPrice} profile={form.profile} ready={result.ok} />
           {result.ok && <WarningList warnings={result.warnings} />}
@@ -110,5 +115,72 @@ export default function BoxSizePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Hands the calculated box to an in-progress shipment.
+ *
+ * DIMENSIONS ONLY, deliberately. The calculator knows the BARE ITEM weight; the
+ * box, padding and tape add real ounces, so carrying the weight over would
+ * under-weigh the parcel — the exact leak closed by making weight a required
+ * entry. Weight comes from the scale.
+ *
+ * The Simple Rate tier is shown here because this is the last moment the box can
+ * still change: once the tape is on, a parcel one cubic inch over its cap is a
+ * re-rate on the weekly invoice.
+ */
+function SimpleRateHandoff({
+  grossDims,
+  router,
+}: {
+  grossDims: { lengthIn: number; widthIn: number; heightIn: number };
+  router: ReturnType<typeof useRouter>;
+}) {
+  // Weight is irrelevant to the tier, so pass the max to isolate the size rules.
+  const simple = simpleRateEligibility({ ...grossDims, weightLbs: 1, destCountry: 'US' });
+
+  function handleAdd() {
+    mergeIntoShippingDraft({
+      lengthIn: grossDims.lengthIn,
+      widthIn: grossDims.widthIn,
+      heightIn: grossDims.heightIn,
+    });
+    router.push('/admin/shipping');
+  }
+
+  return (
+    <section className="rounded-2xl border border-blue/30 bg-blue/5 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-navy">
+            Finished box {grossDims.lengthIn} × {grossDims.widthIn} × {grossDims.heightIn} in
+          </p>
+          <p className="mt-0.5 text-[11px] text-navy/60">
+            {simple.eligible ? (
+              <>
+                UPS Simple Rate tier <strong className="text-navy">{simple.tier}</strong> at{' '}
+                {simple.cubicIn} cu in
+                {simple.nearBoundary && (
+                  <span className="ml-1 font-semibold text-amber-700">
+                    — near the tier cap, re-measure before taping
+                  </span>
+                )}
+              </>
+            ) : (
+              <>Not Simple Rate eligible — {simple.reason.toLowerCase()}</>
+            )}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleAdd}
+          className="shrink-0 rounded-lg bg-blue px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-navy"
+          title="Send these dimensions to the shipping screen. Weight still comes from the scale."
+        >
+          Add to current shipment
+        </button>
+      </div>
+    </section>
   );
 }

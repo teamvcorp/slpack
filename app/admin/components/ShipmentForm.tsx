@@ -41,6 +41,10 @@ interface Props {
    *  live inputs — otherwise fields edited AFTER "Compare" (e.g. recipient
    *  name/phone) never reach the cart/label. */
   onChange?: (data: ShipmentInput) => void;
+  /** Restored draft (see lib/shippingDraft.ts) — a shipment recovered after
+   *  staff switched tabs, or dimensions handed over by the box calculator.
+   *  Read once at mount; the page remounts via `key` to apply a new one. */
+  initial?: ShipmentInput | null;
 }
 
 interface AddressResult {
@@ -109,8 +113,10 @@ const COUNTRIES = [
   { code: 'IN', label: 'India' },
 ];
 
-export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onChange }: Props) {
-  const [form, setForm] = useState<ShipmentInput>(DEFAULTS);
+export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onChange, initial }: Props) {
+  const [form, setForm] = useState<ShipmentInput>(() =>
+    initial ? { ...DEFAULTS, ...initial } : DEFAULTS
+  );
   const [validating, setValidating] = useState(false);
   const [zipLookup, setZipLookup] = useState(false);
   const [addrResult, setAddrResult] = useState<AddressResult | null>(null);
@@ -123,11 +129,16 @@ export default function ShipmentForm({ onSubmit, loading, onAddressStatus, onCha
   // state rather than derived from it. Rendering `form.weightLbs` directly would
   // round-trip every keystroke through parseFloat, so a half-typed "0." collapses
   // to 0 and the box blanks itself — making 0.5 lb impossible to enter.
-  const [parcelText, setParcelText] = useState<Record<ParcelField, string>>({
-    weightLbs: '',
-    lengthIn: '',
-    widthIn: '',
-    heightIn: '',
+  // Seeded from any restored draft, or the boxes would render EMPTY while the
+  // form state holds real numbers — the raw text is the rendered value.
+  const [parcelText, setParcelText] = useState<Record<ParcelField, string>>(() => {
+    const seed = (n: number | undefined) => (Number(n) > 0 ? String(n) : '');
+    return {
+      weightLbs: seed(initial?.weightLbs),
+      lengthIn: seed(initial?.lengthIn),
+      widthIn: seed(initial?.widthIn),
+      heightIn: seed(initial?.heightIn),
+    };
   });
   // Fields flagged by the last blocked submit, so the eye lands on them.
   const [parcelMissing, setParcelMissing] = useState<ParcelField[]>([]);

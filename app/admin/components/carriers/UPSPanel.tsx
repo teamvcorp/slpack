@@ -83,9 +83,6 @@ export default function UPSPanel({ result, onSelectRate, selectedRateCode }: Pro
                         <div className="text-[11px] text-navy/40">
                           Cost ${(rate.costBasisUSD ?? rate.totalChargeUSD).toFixed(2)}
                         </div>
-                        {/* UPS returned no NegotiatedRateCharges, so this "cost"
-                            is the public list price — the label will bill our
-                            lower account rate, making retail overstated. */}
                         {/* The carrier's own published retail — what UPS would
                             charge this customer directly. Our true cost can never
                             exceed it, so it doubles as a sanity ceiling and a
@@ -95,6 +92,28 @@ export default function UPSPanel({ result, onSelectRate, selectedRateCode }: Pro
                             UPS retail ${rate.listPriceUSD.toFixed(2)}
                           </div>
                         )}
+                        {/* Simple Rate won for this parcel: same service to the
+                            customer, lower cost to us. The price above does not
+                            move — this line explains the extra margin. */}
+                        {rate.simpleRate && (
+                          <div className="text-[11px] font-semibold text-green-700">
+                            Simple Rate {rate.simpleRate.tier} — saves $
+                            {(
+                              (rate.costBasisUSD ?? rate.totalChargeUSD) - rate.simpleRate.costUSD
+                            ).toFixed(2)}
+                          </div>
+                        )}
+                        {rate.simpleRate?.nearBoundary && (
+                          <div
+                            className="mt-0.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold leading-none text-amber-700"
+                            title="This box is within 5% of its Simple Rate tier cap. Re-measure before taping — UPS measures at the hub and bills the next tier up weeks later."
+                          >
+                            NEAR TIER LIMIT
+                          </div>
+                        )}
+                        {/* UPS returned no NegotiatedRateCharges, so the "cost"
+                            above is the public list price — the label will bill
+                            our lower account rate, making retail overstated. */}
                         {rate.rateSource === 'published' && (
                           <div
                             className="mt-0.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold leading-none text-amber-700"

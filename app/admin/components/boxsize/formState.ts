@@ -5,12 +5,14 @@ import { cylinderBoundingBox } from '@/lib/parcelGeometry';
 /**
  * Calculator form state.
  *
- * WHY DIMENSIONS ARE STRINGS: ShipmentForm.tsx stores them as numbers via
- * `parseFloat(e.target.value) || 0`. That works for a submit-then-rate form but
- * fights a live-recompute one — typing "0.5" passes through the intermediate
- * "0.", where `parseFloat("0.") || 0` is 0, so the controlled input snaps back
- * and the operator cannot type a decimal. Here the raw string is kept and
- * parsed once at the boundary, in toCalcInput().
+ * WHY DIMENSIONS ARE STRINGS: typing "0.5" passes through the intermediate
+ * "0.", where `parseFloat("0.") || 0` is 0 — so a controlled input bound to the
+ * parsed number snaps back and the operator cannot type a decimal. The raw
+ * string is kept here and parsed once at the boundary, in toCalcInput().
+ *
+ * ShipmentForm.tsx used to have exactly that bug and now keeps the same
+ * raw-string state (its `parcelText`), so the two forms agree. Don't
+ * "simplify" either back to a single numeric source.
  */
 export interface BoxFormState {
   shape: 'box' | 'cylinder';

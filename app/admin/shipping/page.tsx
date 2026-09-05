@@ -3,6 +3,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { stashShippingCart } from '@/lib/comboHandoff';
+import {
+  readShippingDraft,
+  saveShippingDraft,
+  clearShippingDraft,
+} from '@/lib/shippingDraft';
 import ShipmentForm from '../components/ShipmentForm';
 import FedExPanel from '../components/carriers/FedExPanel';
 import UPSPanel from '../components/carriers/UPSPanel';
@@ -90,6 +95,10 @@ export default function ShippingComparisonPage() {
   // catches a tab still running the JavaScript from an earlier deploy.
   const [quotedAt, setQuotedAt] = useState<number | null>(null);
   const [serverBuildId, setServerBuildId] = useState<string | null>(null);
+  // Shipment recovered from a tab switch (or handed over by the box calculator).
+  // Seeds the form via `initial`; the formKey bump below remounts it.
+  const [restored, setRestored] = useState<ShipmentInput | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +112,37 @@ export default function ShippingComparisonPage() {
       });
     return () => { cancelled = true; };
   }, []);
+
+  // Restore an in-progress shipment once, on mount.
+  //
+  // This MUST be an effect rather than a render-phase read, and the lint rule
+  // below is disabled deliberately. sessionStorage does not exist during SSR, so
+  // the server renders an empty form; putting the draft into the first committed
+  // client render — via a useState initializer or a render-phase update — would
+  // make the client output disagree with the server HTML and produce a hydration
+  // mismatch. Rendering empty first and filling in after mount is the only order
+  // that stays consistent. The formKey bump remounts ShipmentForm so it picks the
+  // draft up through `initial`.
+  useEffect(() => {
+    const draft = readShippingDraft();
+    if (!draft) return;
+    if (!draft.shipment && draft.cart.length === 0) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (draft.shipment) setRestored(draft.shipment);
+    if (draft.cart.length > 0) setCart(draft.cart);
+    setFormKey((k) => k + 1);
+    setDraftRestored(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
+
+  // Persist the draft as staff work. Quotes are deliberately NOT saved — see
+  // lib/shippingDraft.ts; a revived price could predate a deploy or a carrier
+  // rate change, which the stale-quote guards exist to prevent.
+  useEffect(() => {
+    if (!currentShipment && cart.length === 0) return;
+    const t = setTimeout(() => saveShippingDraft({ shipment: currentShipment, cart }), 400);
+    return () => clearTimeout(t);
+  }, [currentShipment, cart]);
 
   const markLoading = useCallback((carrier: CarrierKey) => {
     setResults((prev) => ({
@@ -275,6 +315,7 @@ export default function ShippingComparisonPage() {
   }
 
   function handleAddAnother() {
+    setRestored(null);
     // Keep form as-is (address reuse) but clear rate results so staff can get fresh rates
     setResults(INITIAL_RESULTS);
     setCurrentShipment(null);
@@ -298,6 +339,12 @@ export default function ShippingComparisonPage() {
   }
 
   function handleLabelDone() {
+    // Payment is complete and the label has printed — the shipment is finished,
+    // so the draft goes. Anything surviving past here would reappear on the next
+    // customer looking like fresh entry.
+    clearShippingDraft();
+    setRestored(null);
+    setDraftRestored(false);
     setCart([]);
     setPreviewCarrier(null);
     setCartResults(null);
@@ -318,7 +365,9 @@ export default function ShippingComparisonPage() {
   // together in one sale, on one receipt.
   function handleAddToRegister() {
     if (cart.length === 0) return;
+    // The register takes ownership of these packages from here.
     stashShippingCart(cart);
+    clearShippingDraft();
     router.push('/admin/register');
   }
 
@@ -348,7 +397,35 @@ export default function ShippingComparisonPage() {
       </div>
 
       {/* Shipment form */}
-      <ShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} onAddressStatus={setAddressValidated} onChange={handleFormChange} />
+      {/* A draft only outlives its shipment if one was abandoned mid-counter, so
+          say so plainly rather than letting it look like fresh entry. */}
+      {draftRestored && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-blue/30 bg-blue/5 px-3 py-2">
+          <span className="text-xs text-navy/70">
+            <strong>Draft restored</strong>
+            {currentShipment?.customerName ? ` — ${currentShipment.customerName}` : ''}. Re-compare
+            before checkout.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              clearShippingDraft();
+              setRestored(null);
+              setDraftRestored(false);
+              setCart([]);
+              setCurrentShipment(null);
+              setResults(INITIAL_RESULTS);
+              setHasCompared(false);
+              setFormKey((k) => k + 1);
+            }}
+            className="shrink-0 rounded-lg border border-navy/20 bg-white px-2.5 py-1 text-[11px] font-semibold text-navy/70 hover:bg-cream"
+          >
+            Discard
+          </button>
+        </div>
+      )}
+
+      <ShipmentForm key={formKey} initial={restored} onSubmit={handleCompare} loading={anyLoading} onAddressStatus={setAddressValidated} onChange={handleFormChange} />
 
       {/* Carrier panels — 1 col mobile, 2 col tablet+ */}
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -9,6 +9,7 @@ import { upsertContacts } from '@/lib/contacts';
 import { buildShipmentReceiptHtml } from '@/lib/receipt';
 import { priceInsurance } from '@/lib/shippingPricing';
 import { normalizeSignature } from '@/lib/signatureOption';
+import { normalizeSimpleRateTier } from '@/lib/upsSimpleRate';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
 
 const ROUTE = 'shipping/submit';
@@ -23,6 +24,8 @@ export async function POST(req: NextRequest) {
       rateSource,
       listPriceUSD,
       priceOverridden,
+      simpleRateTier,
+      simpleRateQuotedUSD,
       shipment,
       shippingUSD,
       insuranceUSD,
@@ -115,6 +118,9 @@ export async function POST(req: NextRequest) {
               // Normalized/capped, never the raw client object.
               insurance: pricedInsurance,
               saturdayDelivery: saturdayDelivery === true,
+              // Re-validated against the shipment inside the label route — the
+              // tier that arrives from the browser is a hint, not an authority.
+              simpleRateTier,
             }),
           }
         );
@@ -145,6 +151,44 @@ export async function POST(req: NextRequest) {
     // rejecting would leave a charged customer with no label. It records the
     // shortfall instead, the same way the insurance mismatch above does, so a
     // shipment sold below cost is visible and chaseable rather than silent.
+    // Simple Rate re-rate detection. The flat tier is declared from OUR measured
+    // dimensions; UPS measures the box at the hub. If the billed cost comes back
+    // above the tier price we quoted, UPS re-tiered the parcel — which means the
+    // counter's measuring or our tier maths is off, and every similar parcel is
+    // quietly losing the difference. Not a loss on this shipment (the customer
+    // paid carrier retail), so it is logged rather than raised.
+    const quotedSimple = Number(simpleRateQuotedUSD);
+    if (
+      normalizeSimpleRateTier(simpleRateTier) &&
+      carrierCostUSD !== null &&
+      Number.isFinite(quotedSimple) &&
+      quotedSimple > 0 &&
+      carrierCostUSD > quotedSimple + 0.01
+    ) {
+      await appendError({
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        route: ROUTE,
+        carrier,
+        status: 200,
+        message:
+          `UPS RE-RATED a Simple Rate parcel — declared tier ${simpleRateTier} quoted at ` +
+          `$${quotedSimple.toFixed(2)}, billed $${carrierCostUSD.toFixed(2)} ` +
+          `(+$${(carrierCostUSD - quotedSimple).toFixed(2)}). Re-check the box measurements ` +
+          `and the tier thresholds in lib/upsSimpleRate.ts.`,
+        requestSummary: {
+          serviceName,
+          simpleRateTier,
+          quotedSimpleRateUSD: quotedSimple,
+          billedUSD: carrierCostUSD,
+          weightLbs: shipment?.weightLbs,
+          lengthIn: shipment?.lengthIn,
+          widthIn: shipment?.widthIn,
+          heightIn: shipment?.heightIn,
+        },
+      });
+    }
+
     const collectedFreightUSD = Number(shippingUSD) || 0;
     if (carrierCostUSD !== null && collectedFreightUSD < carrierCostUSD) {
       await appendError({
@@ -212,6 +256,7 @@ export async function POST(req: NextRequest) {
       signature: normalizeSignature(shipment?.signature) === 'none'
         ? undefined
         : normalizeSignature(shipment?.signature),
+      simpleRateTier: normalizeSimpleRateTier(simpleRateTier) ?? undefined,
       transactionId: typeof transactionId === 'string' ? transactionId : undefined,
     };
 

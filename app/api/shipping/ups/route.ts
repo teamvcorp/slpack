@@ -6,6 +6,11 @@ import { SITE } from '@/lib/siteConfig';
 import { formatDeliveryDate, isSaturdayDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
 import { normalizeSignature, upsDeliveryConfirmation } from '@/lib/signatureOption';
+import {
+  simpleRateEligibility,
+  isSimpleRateService,
+  type SimpleRateTier,
+} from '@/lib/upsSimpleRate';
 
 const ROUTE = 'shipping/ups';
 
@@ -70,7 +75,16 @@ export async function POST(req: NextRequest) {
     // (ServiceOptionsCharges). No SaturdayDeliveryIndicator is needed when
     // RATING — the indicator IS required on the LABEL request or UPS books
     // Mon–Fri delivery. See saturday_delivery_notes.md.
-    const payload = {
+    //
+    // Simple Rate is a flat price by cubic-volume tier, EXEMPT from residential,
+    // delivery-area and fuel surcharges — often cheaper on a small, heavy,
+    // residential parcel and often DEARER on a light short-zone one. It is
+    // therefore quoted alongside the standard rates and used only where it wins.
+    const simple = simpleRateEligibility({
+      weightLbs, lengthIn, widthIn, heightIn, destCountry,
+    });
+
+    const buildPayload = (simpleRateTier: SimpleRateTier | null) => ({
       RateRequest: {
         Request: {
           RequestOption: 'Shoptimeintransit',
@@ -119,7 +133,15 @@ export async function POST(req: NextRequest) {
             UnitOfMeasurement: { Code: 'LBS', Description: 'Pounds' },
             Weight: String(weightLbs),
           },
+          // Simple Rate needs NumOfPieces at shipment level alongside
+          // Package.SimpleRate — per the official Rating.yaml example. Omitted
+          // entirely on the standard call so that quote is byte-identical to
+          // what it has always been.
+          ...(simpleRateTier ? { NumOfPieces: '1' } : {}),
           Package: {
+            ...(simpleRateTier
+              ? { SimpleRate: { Code: simpleRateTier, Description: 'Simple Rate' } }
+              : {}),
             PackagingType: { Code: '02', Description: 'Package' },
             Dimensions: {
               UnitOfMeasurement: { Code: 'IN', Description: 'Inches' },
@@ -138,16 +160,37 @@ export async function POST(req: NextRequest) {
           },
         },
       },
-    };
-
-    const rateRes = await fetch(`${BASE}/api/rating/v2403/Shoptimeintransit`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
     });
+
+    const callUps = (simpleRateTier: SimpleRateTier | null) =>
+      fetch(`${BASE}/api/rating/v2403/Shoptimeintransit`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(buildPayload(simpleRateTier)),
+      });
+
+    // Two calls: the standard quote we have always made, plus a Simple Rate one
+    // when the parcel qualifies. allSettled, because a Simple Rate failure must
+    // degrade to today's behaviour rather than blanking the whole panel.
+    const [standardRes, simpleRes] = await Promise.allSettled([
+      callUps(null),
+      simple.eligible ? callUps(simple.tier) : Promise.reject(new Error('not eligible')),
+    ]);
+
+    if (standardRes.status !== 'fulfilled') {
+      return await logAndRespond({
+        route: ROUTE,
+        carrier: 'ups',
+        status: 502,
+        message: 'UPS rate request failed',
+        upstreamBody: String(standardRes.reason),
+        requestSummary,
+      });
+    }
+    const rateRes = standardRes.value;
 
     if (!rateRes.ok) {
       const body = await rateRes.text();
@@ -160,6 +203,27 @@ export async function POST(req: NextRequest) {
         upstreamBody: body,
         requestSummary,
       });
+    }
+
+    // Simple Rate cost per service code. Empty whenever the parcel doesn't
+    // qualify or UPS refused — the merge below then simply finds nothing.
+    const simpleCostByService = new Map<string, number>();
+    if (simple.eligible && simpleRes.status === 'fulfilled' && simpleRes.value.ok) {
+      try {
+        const simpleData = await simpleRes.value.json();
+        const simpleRaw = simpleData?.RateResponse?.RatedShipment ?? [];
+        for (const sr of (Array.isArray(simpleRaw) ? simpleRaw : [simpleRaw]) as Record<string, unknown>[]) {
+          const code = (sr.Service as Record<string, string>)?.Code ?? '';
+          if (!isSimpleRateService(code)) continue;
+          const negotiated = (sr.NegotiatedRateCharges as Record<string, Record<string, string>> | undefined)
+            ?.TotalCharge?.MonetaryValue;
+          const total = (sr.TotalCharges as Record<string, string> | undefined)?.MonetaryValue;
+          const cost = parseFloat(negotiated ?? total ?? '');
+          if (Number.isFinite(cost) && cost > 0) simpleCostByService.set(code, cost);
+        }
+      } catch {
+        // Malformed Simple Rate reply — fall through with an empty map.
+      }
     }
 
     const data = await rateRes.json();
@@ -209,6 +273,20 @@ export async function POST(req: NextRequest) {
         (summary?.SaturdayDelivery as unknown) === '1' && isSaturdayDate(arrivalRaw);
       const baseName = SERVICE_NAMES[code] ?? `UPS Service ${code}`;
 
+      // Attach Simple Rate ONLY where it actually beats the standard cost.
+      // Saturday rows are excluded: Simple Rate has no Saturday variant, and the
+      // quoted Saturday surcharge would be lost if we booked one flat.
+      const stdCost = parseFloat(negotiated ?? charges?.MonetaryValue ?? '0');
+      const simpleCost = simpleCostByService.get(code);
+      const simpleWins =
+        simple.eligible &&
+        simple.tier !== null &&
+        !saturdayDelivery &&
+        simpleCost !== undefined &&
+        Number.isFinite(stdCost) &&
+        stdCost > 0 &&
+        simpleCost < stdCost;
+
       return {
         serviceCode: code,
         // Suffix appended HERE ONLY — cart, receipts, and the shipment log all
@@ -219,6 +297,19 @@ export async function POST(req: NextRequest) {
         deliveryDate,
         rateSource,
         ...(Number.isFinite(listPrice) && listPrice > 0 ? { listPriceUSD: listPrice } : {}),
+        // NOTE the Simple Rate cost is reported SEPARATELY and never folded into
+        // totalChargeUSD or listPriceUSD. It is a shipper-program cost, not a
+        // retail counter price, so using it as the pricing anchor would collapse
+        // the customer's charge to about cost + the margin floor.
+        ...(simpleWins
+          ? {
+              simpleRate: {
+                tier: simple.tier as SimpleRateTier,
+                costUSD: simpleCost as number,
+                nearBoundary: simple.nearBoundary,
+              },
+            }
+          : {}),
         // The Saturday surcharge is already inside the rated total.
         ...(saturdayDelivery ? { saturdayDelivery: true } : {}),
       };
