@@ -10,6 +10,18 @@ import { ObjectId } from 'mongodb';
 const SENDERS = 'senders';
 const RECIPIENTS = 'recipients';
 
+/**
+ * Coerce a possibly-untrusted value to a plain string (NoSQL-injection guard,
+ * 2026-09-10). These values arrive in request bodies and flow into Mongo query
+ * filters and `$set` documents. An object such as `{"$ne":null}` reaching a
+ * filter as an OPERATOR let a caller overwrite or read an arbitrary contact
+ * record. Coercing here — in the library, not at each caller — means no future
+ * caller can reintroduce the hole. Same instinct as IGNORE_UNDEFINED.
+ */
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : '';
+}
+
 /** Minimized ID-verification result stored on a sender (never DOB/full ID number/images). */
 export interface IdCheck {
   status: 'verified';
@@ -150,14 +162,16 @@ export async function upsertContacts(input: ContactInput): Promise<{ senderId: s
   const now = new Date().toISOString();
 
   const s = input.sender;
-  const sName = (s.name ?? '').trim();
+  const sName = str(s.name).trim();
+  const sPhone = str(s.phone);
+  const sEmail = str(s.email);
   if (!sName) return { senderId: null, recipientId: null };
 
-  const sFilter = s.phone ? { phone: s.phone } : s.email ? { email: s.email } : { name: sName };
+  const sFilter = sPhone ? { phone: sPhone } : sEmail ? { email: sEmail } : { name: sName };
   await senders().updateOne(
     sFilter,
     {
-      $set: { name: sName, phone: s.phone ?? '', email: s.email ?? '', lastUsed: now },
+      $set: { name: sName, phone: sPhone, email: sEmail, lastUsed: now },
       $inc: { useCount: 1 },
     },
     { upsert: true }
@@ -167,10 +181,12 @@ export async function upsertContacts(input: ContactInput): Promise<{ senderId: s
   if (!senderId) return { senderId: null, recipientId: null };
 
   const r = input.recipient;
-  const rName = (r.name ?? '').trim();
+  const rName = str(r.name).trim();
+  const rPhone = str(r.phone);
+  const rEmail = str(r.email);
   if (!rName) return { senderId: String(senderId), recipientId: null };
 
-  const rMatch = r.phone ? { phone: r.phone } : r.email ? { email: r.email } : { name: rName };
+  const rMatch = rPhone ? { phone: rPhone } : rEmail ? { email: rEmail } : { name: rName };
   const rFilter = { senderId, ...rMatch };
   await recipients().updateOne(
     rFilter,
@@ -178,14 +194,14 @@ export async function upsertContacts(input: ContactInput): Promise<{ senderId: s
       $set: {
         senderId,
         name: rName,
-        phone: r.phone ?? '',
-        email: r.email ?? '',
-        street: r.street ?? '',
-        street2: r.street2 ?? '',
-        city: r.city ?? '',
-        state: r.state ?? '',
-        zip: r.zip ?? '',
-        country: r.country ?? 'US',
+        phone: rPhone,
+        email: rEmail,
+        street: str(r.street),
+        street2: str(r.street2),
+        city: str(r.city),
+        state: str(r.state),
+        zip: str(r.zip),
+        country: str(r.country) || 'US',
         lastUsed: now,
       },
       $inc: { useCount: 1 },
@@ -210,25 +226,23 @@ export async function attachIdCheckToSender(input: {
 }): Promise<{ senderId: string | null }> {
   await client.connect();
   const now = new Date().toISOString();
-  const name = (input.name ?? input.idCheck.verifiedName ?? '').trim();
-  if (!name && !input.phone && !input.email) return { senderId: null };
+  const name = str(input.name || input.idCheck.verifiedName).trim();
+  const phone = str(input.phone);
+  const email = str(input.email);
+  if (!name && !phone && !email) return { senderId: null };
 
-  const filter = input.phone
-    ? { phone: input.phone }
-    : input.email
-      ? { email: input.email }
-      : { name };
+  const filter = phone ? { phone } : email ? { email } : { name };
 
   // Only write fields we actually have, so we never blank out an existing
   // sender's name/phone/email when attaching a verification.
   const set: Record<string, unknown> = { lastUsed: now, idCheck: input.idCheck };
   if (name) set.name = name;
-  if (input.phone) set.phone = input.phone;
-  if (input.email) set.email = input.email;
+  if (phone) set.phone = phone;
+  if (email) set.email = email;
   const setOnInsert: Record<string, unknown> = { useCount: 0 };
   if (!name) setOnInsert.name = '';
-  if (!input.phone) setOnInsert.phone = '';
-  if (!input.email) setOnInsert.email = '';
+  if (!phone) setOnInsert.phone = '';
+  if (!email) setOnInsert.email = '';
 
   await senders().updateOne(filter, { $set: set, $setOnInsert: setOnInsert }, { upsert: true });
   const doc = await senders().findOne(filter);

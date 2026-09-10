@@ -161,8 +161,9 @@ export async function POST(req: NextRequest) {
         accountNumber: effectiveAccountNumber,
       });
     }
+    // NB: do not log payAuthPayload — it carries the USPS EPS account number,
+    // which must not land in runtime logs. (2026-09-10)
     const payAuthPayload = { roles: payAuthRoles };
-    console.log('USPS payment auth payload:', JSON.stringify(payAuthPayload));
 
     const payAuthRes = await fetch(`${BASE}/payments/v3/payment-authorization`, {
       method: 'POST',

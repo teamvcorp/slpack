@@ -175,8 +175,10 @@ export async function POST(req: NextRequest) {
       html,
     });
     if (sendError) {
+      // Keep the provider detail server-side (public route).
+      console.error('[print-order] notification email failed', sendError);
       return NextResponse.json(
-        { error: `Order upload succeeded but the notification email failed: ${sendError.message ?? 'unknown error'}` },
+        { error: 'Your order was received but the notification email failed. Please call the shop to confirm.' },
         { status: 502 }
       );
     }
@@ -203,7 +205,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Detail stays server-side — never leak err.message to an anonymous caller.
+    // See app/api/contact/route.ts. (2026-09-10)
+    console.error('[print-order] request failed', err);
+    return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 }

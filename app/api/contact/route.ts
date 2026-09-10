@@ -72,7 +72,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
-    const messageText = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: messageText }, { status: 500 });
+    // Detail stays server-side. Returning err.message to an anonymous caller
+    // leaks internals — a Mongo driver error carries Atlas hostnames and cluster
+    // topology, a Resend error the sending-domain state. (2026-09-10)
+    console.error('[contact] request failed', err);
+    return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 }

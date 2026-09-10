@@ -158,7 +158,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
-    const messageText = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: messageText }, { status: 500 });
+    // Detail stays server-side — never leak err.message to an anonymous caller.
+    // See app/api/contact/route.ts. (2026-09-10)
+    console.error('[website-quote] request failed', err);
+    return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 }
