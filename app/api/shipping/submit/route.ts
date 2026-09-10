@@ -346,7 +346,21 @@ export async function POST(req: NextRequest) {
       insuranceUSD: collectedInsuranceUSD,
       packingFeeUSD: Number(packingFeeUSD ?? 0),
       cardFeeUSD: Number(cardFeeUSD) > 0 ? Number(cardFeeUSD) : undefined,
-      totalUSD: collectedTotalUSD,
+      // Under binding the revenue figure is the SERVER-authoritative charge
+      // (bound freight + the collected extras + card fee), not the client's
+      // total — otherwise a tampered total would understate revenue even though
+      // the customer was charged the bound amount. Off binding, the collected
+      // client total, as before. (fix 2026-09-10)
+      totalUSD:
+        boundFreightUSD !== null
+          ? Math.round(
+              (boundFreightUSD +
+                collectedInsuranceUSD +
+                Number(packingFeeUSD ?? 0) +
+                (Number(cardFeeUSD) > 0 ? Number(cardFeeUSD) : 0)) *
+                100
+            ) / 100
+          : collectedTotalUSD,
       carrierCostUSD: carrierCostUSD ?? undefined,
       // carrierCostUSD is always the negotiated figure. Recording which price
       // book the QUOTE used lets the margin report size the gap between the two
