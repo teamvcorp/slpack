@@ -11,7 +11,7 @@ against source; fixes verified against local dev. No production probing.
 | C1 | Critical | `/api/contacts/*` PII + ID data anonymous (proxy `startsWith` prefix bug) | **FIXED** — exact-match allowlist; verified 401 without cookie |
 | C3 | Critical | Auth fails open when `ADMIN_PASSCODE` unset | **FIXED** — fails closed in prod/preview |
 | H5 | High | Public unlimited 1 GB blob-upload token minting | **FIXED** — rate-limited (12/10min), cap 50 MB |
-| C2 | Critical | Payment amount client-controlled; no payment↔label binding | **PARTIAL** — $2000 ceiling stopgap shipped; full binding OUTSTANDING (see below) |
+| C2 | Critical | Payment amount client-controlled; no payment↔label binding | **ENFORCEMENT DONE (flag-gated OFF), verified vs Stripe test mode** — server recomputes freight from quotes + verifies PI before minting; rate-route + client wiring remain before it can be enabled (see below) |
 | H1 | High | NoSQL operator injection into contacts filters | **FIXED** — `str()` coercion in lib/contacts.ts; verified |
 | H7 | High | Zero security headers | **FIXED** — HSTS/nosniff/Referrer/frame-DENY/Permissions; CSP still deferred (Epson SDK eval) |
 | M1 | Med | Static `sha256(PIN)` cookie; no revocation/audit | **FIXED (flag-gated)** — HMAC session tokens + auth log; enable via `SESSION_SECRET` |
@@ -53,27 +53,35 @@ against source; fixes verified against local dev. No production probing.
 - `terminalIntents`: TTL `at` (1 day)
 - `paymentEvents`: unique `eventId`
 
-## OUTSTANDING: payment binding (C2/H2/H3/H6) — the remaining structural fix
+## Payment binding (C2) — status and what's left
 
-The charge amount is computed in the browser and trusted verbatim; label
-issuance is not bound to a verified payment. The correct fix is a server-side
-quote/order record: persist each quoted rate server-side (carrier, service,
-cost, server-computed retail via `carrierAnchoredPrice`, expiry); have the
-browser send only a `quoteId`; recompute the charge from the stored quote;
-require a verified `paymentIntentId` (status succeeded, amount ≥ quote) in
-`/api/shipping/submit` before minting the label; and add a
-`payment_intent.succeeded` webhook (H6) as the server-side source of truth.
+**Done and verified against Stripe TEST mode (flag-gated OFF):**
+- `lib/quoteStore.ts` — server quotes (create / getValid / consume; TTL + unique
+  indexes on Atlas).
+- `create-payment-intent`: with `PAYMENT_BINDING_ENABLED` and `quoteIds`, freight
+  is recomputed from the stored quotes; the client amount is ignored for freight.
+- `shipping/submit`: validates the quote and, for card sales, confirms the PI
+  succeeded and names this quote BEFORE minting (402/409 otherwise); consumes the
+  quote only after the label prints (Regenerate-safe). Freight logged is the
+  quote's figure.
+- `/api/webhooks/stripe` (H6) records payment_intent events.
+- Verified: tampered $0.01 → PI for the real quote price; expired/missing quote →
+  409; no PI → 402; mismatched PI → 402; valid PI → passes; **flag OFF →
+  unchanged** (card, cash, and the Terminal reader all behave as today).
 
-This closes C2, H2, H3, and H6 together. The server pricing authority already
-exists (`lib/shippingPricing.ts`). What remains touches the three checkout
-components (StripeCheckout, RegisterCheckout, CombinedCheckout) plus the
-terminal path, and MUST be verified through a real Stripe **test-mode**
-checkout in the browser — it cannot be validated from the command line. It also
-needs `STRIPE_WEBHOOK_SECRET` configured. Do this as a focused session with the
-app running and Stripe test keys.
+**Remaining before the flag can be turned on (do NOT enable until then — with it
+on and no quoteIds, submit 409s every shipment):**
+1. Rate routes create a quote per offered rate and return its `quoteId`
+   (server-compute cost basis + retail; the authority is `lib/shippingPricing.ts`
+   + `lib/carrierIncentive.ts`).
+2. Checkout components thread `quoteId` (per package) into create-payment-intent
+   (as `quoteIds` + `extrasUSD`) and into submit (`quoteId` + `paymentIntentId`).
+   The **Terminal reader flow is out of scope** — it stays on its own route.
+3. A real browser checkout in Stripe **test mode** end-to-end, then flip the flag
+   in preview before production. Needs `STRIPE_WEBHOOK_SECRET` for the webhook.
 
-Interim protection in place: the $2000 ceiling on both billing routes (refuses
-absurd amounts, logs them), plus the existing below-cost backstop in submit.
+Interim protection stays in force: the $2000 ceiling on both billing routes plus
+the below-cost backstop + money alerts in submit.
 
 ## Not done, lower priority
 - H4 void actor/refund reconciliation (do with sessions — record `voidedBy`).
