@@ -285,6 +285,7 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
           // Payment binding (ignored server-side unless its flag is on).
           quoteIds: cart.map((i) => i.rate.quoteId).filter(Boolean),
           extrasUSD: totalInsurance + packingFeeUSD + totalDuties,
+          hasOverride: cart.some((i) => i.priceOverridden === true),
         }),
       });
       const data = await res.json();
@@ -361,6 +362,9 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
             // is off (no quotes were stored), leaving amountUSD in charge.
             quoteIds: cart.map((i) => i.rate.quoteId).filter(Boolean),
             extrasUSD: totalInsurance + packingFeeUSD + totalDuties,
+            // A staff price override (frequent-shipper discount) is honored and
+            // audited server-side rather than recomputed away.
+            hasOverride: cart.some((i) => i.priceOverridden === true),
           }),
         });
         const piData = await piRes.json();

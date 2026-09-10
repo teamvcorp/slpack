@@ -21,14 +21,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Stripe not configured' }, { status: 503 });
     }
 
-    const { email, paymentMethodId, amountUSD, carrier, serviceName, shipmentDetails, quoteIds, extrasUSD } = await req.json();
+    const { email, paymentMethodId, amountUSD, carrier, serviceName, shipmentDetails, quoteIds, extrasUSD, hasOverride } = await req.json();
     const cleanEmail = sanitizeEmail(email);
 
     if (!cleanEmail) return NextResponse.json({ ok: false, error: 'Sender email required' }, { status: 400 });
     if (!paymentMethodId) return NextResponse.json({ ok: false, error: 'No saved card selected' }, { status: 400 });
 
     // Payment binding (flag-gated): recompute freight from server quotes when on.
-    // Mirrors create-payment-intent. Inert (client amount used) when off.
+    // Mirrors create-payment-intent, including the audited staff-override path.
+    // Inert (client amount used) when off.
     let chargeUSD = Number(amountUSD);
     let boundQuoteIds: string[] = [];
     if (paymentBindingEnabled() && Array.isArray(quoteIds) && quoteIds.length > 0) {
@@ -44,7 +45,20 @@ export async function POST(req: NextRequest) {
         freight += q.retailUSD;
         boundQuoteIds.push(q.quoteId);
       }
-      chargeUSD = Math.round((freight + Math.max(0, Number(extrasUSD) || 0)) * 100) / 100;
+      const extras = Math.max(0, Number(extrasUSD) || 0);
+      if (hasOverride === true) {
+        chargeUSD = Number(amountUSD); // honor the deliberate counter discount
+        await appendError({
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          route: 'billing/charge-saved-card',
+          status: 200,
+          message: `Counter price OVERRIDE (saved card) — charged $${chargeUSD.toFixed(2)} vs formula freight $${freight.toFixed(2)} + extras $${extras.toFixed(2)}. Deliberate discount; logged for audit.`,
+          requestSummary: { chargeUSD, formulaFreightUSD: freight, extrasUSD: extras, carrier, serviceName },
+        });
+      } else {
+        chargeUSD = Math.round((freight + extras) * 100) / 100;
+      }
     }
 
     if (!chargeUSD || chargeUSD <= 0) {

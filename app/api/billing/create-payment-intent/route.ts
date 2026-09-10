@@ -21,21 +21,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { amountUSD, paymentMethodId, carrier, serviceName, customerEmail, customerName, saveCard, shipmentDetails, quoteIds, extrasUSD } =
+    const { amountUSD, paymentMethodId, carrier, serviceName, customerEmail, customerName, saveCard, shipmentDetails, quoteIds, extrasUSD, hasOverride } =
       await req.json();
 
     // ── Payment binding (flag-gated) ─────────────────────────────────────────
     // With PAYMENT_BINDING_ENABLED and quoteIds present, the FREIGHT is
     // recomputed from the server-stored quotes and the client's amount is
-    // ignored for freight — this is what stops a tampered browser from naming
-    // its own price. Insurance/packing/duties pass through as extrasUSD (small,
-    // and insurance is re-priced again in submit). With the flag off, or no
-    // quoteIds, the client amount is used exactly as before.
+    // ignored — this is what stops a tampered browser from naming its own price.
     //
-    // NB: the Stripe Terminal reader uses a SEPARATE route (/api/terminal/
-    // collect) and is intentionally NOT bound here — tap-and-pay is unchanged.
+    // EXCEPTION — staff price overrides (frequent-shipper discounts). An override
+    // is a deliberate, authenticated counter action, so it is HONORED: the
+    // client total is used, but the override is recorded to the audit log so it
+    // is never silent. The non-override path stays fully bound.
+    //
+    // With the flag off, or no quoteIds, the client amount is used as before.
+    // The Stripe Terminal reader uses a separate route and is not bound here.
     let chargeUSD = Number(amountUSD);
     let boundQuoteIds: string[] = [];
+    const overrideApplied = hasOverride === true;
     if (paymentBindingEnabled() && Array.isArray(quoteIds) && quoteIds.length > 0) {
       let freight = 0;
       for (const raw of quoteIds) {
@@ -50,7 +53,20 @@ export async function POST(req: NextRequest) {
         boundQuoteIds.push(q.quoteId);
       }
       const extras = Math.max(0, Number(extrasUSD) || 0);
-      chargeUSD = Math.round((freight + extras) * 100) / 100;
+      if (overrideApplied) {
+        // Honor the staff-entered total, but audit it against the formula.
+        chargeUSD = Number(amountUSD);
+        await appendError({
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          route: 'billing/create-payment-intent',
+          status: 200,
+          message: `Counter price OVERRIDE — charged $${chargeUSD.toFixed(2)} vs formula freight $${freight.toFixed(2)} + extras $${extras.toFixed(2)}. A deliberate discount is expected; this line makes it auditable.`,
+          requestSummary: { chargeUSD, formulaFreightUSD: freight, extrasUSD: extras, carrier, serviceName },
+        });
+      } else {
+        chargeUSD = Math.round((freight + extras) * 100) / 100;
+      }
     }
 
     if (!chargeUSD || chargeUSD <= 0) {

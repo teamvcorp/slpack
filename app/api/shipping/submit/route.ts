@@ -133,7 +133,14 @@ export async function POST(req: NextRequest) {
           { status: 409 }
         );
       }
-      boundFreightUSD = q.retailUSD;
+      // Honor a staff price override (frequent-shipper discount): record the
+      // override total the customer was actually charged, otherwise the quote's
+      // authoritative price. The override is a deliberate authenticated action,
+      // already flagged on the shipment log (priceOverridden) and audited in
+      // create-payment-intent. The override PaymentIntent still NAMES this quote
+      // in its metadata, so the verification below passes normally.
+      boundFreightUSD =
+        priceOverridden === true ? Number(shippingUSD) || q.retailUSD : q.retailUSD;
       boundQuoteId = q.quoteId;
       if (paymentMethod !== 'cash') {
         const pid = String(paymentIntentId ?? '');
