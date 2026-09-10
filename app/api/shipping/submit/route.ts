@@ -9,6 +9,7 @@ import { upsertContacts } from '@/lib/contacts';
 import { buildShipmentReceiptHtml } from '@/lib/receipt';
 import { priceInsurance } from '@/lib/shippingPricing';
 import { sendMoneyAlert } from '@/lib/alerts';
+import { paymentBindingEnabled, getValidQuote, consumeQuote } from '@/lib/quoteStore';
 import { normalizeSignature } from '@/lib/signatureOption';
 import { normalizeSimpleRateTier } from '@/lib/upsSimpleRate';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
@@ -37,6 +38,8 @@ export async function POST(req: NextRequest) {
       paymentMethod,
       transactionId,
       suppressEmail,
+      paymentIntentId,
+      quoteId,
     } = await req.json();
 
     // Whitelist the carrier before it is interpolated into the internal label
@@ -106,6 +109,58 @@ export async function POST(req: NextRequest) {
       ]);
     }
 
+    // ── 0b. Payment binding gate (flag-gated) ────────────────────────────────
+    // With PAYMENT_BINDING_ENABLED, a label is not minted unless a real payment
+    // covers it: validate the server-stored quote, and for card sales confirm
+    // the PaymentIntent SUCCEEDED and names this quote. This runs BEFORE the
+    // label call, so a tampered/absent payment is refused without spending a
+    // carrier label. The quote is consumed only AFTER the label succeeds, so a
+    // failed label leaves it reusable for Regenerate. Off -> unchanged.
+    //
+    // Freight then comes from the quote (boundFreightUSD), server-authoritative,
+    // rather than the client's shippingUSD.
+    let boundFreightUSD: number | null = null;
+    let boundQuoteId: string | null = null;
+    if (paymentBindingEnabled()) {
+      const q = await getValidQuote(String(quoteId ?? ''));
+      if (!q) {
+        return NextResponse.json(
+          { error: 'Shipping quote is invalid, expired, or already used. Please re-quote.' },
+          { status: 409 }
+        );
+      }
+      boundFreightUSD = q.retailUSD;
+      boundQuoteId = q.quoteId;
+      if (paymentMethod !== 'cash') {
+        const pid = String(paymentIntentId ?? '');
+        if (!pid) {
+          return NextResponse.json(
+            { error: 'Payment required before a label can be created.' },
+            { status: 402 }
+          );
+        }
+        try {
+          const Stripe = (await import('stripe')).default;
+          const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
+            apiVersion: '2025-02-24.acacia',
+          });
+          const pi = await stripe.paymentIntents.retrieve(pid);
+          const paidQuotes = String(pi.metadata?.quoteIds ?? '').split(',').filter(Boolean);
+          if (pi.status !== 'succeeded' || !paidQuotes.includes(q.quoteId)) {
+            return NextResponse.json(
+              { error: 'Payment could not be verified for this shipment.' },
+              { status: 402 }
+            );
+          }
+        } catch {
+          return NextResponse.json(
+            { error: 'Payment could not be verified.' },
+            { status: 402 }
+          );
+        }
+      }
+    }
+
     // ── 1. Generate label via carrier API ───────────────────────────────────
     // Attempt twice: carrier label APIs occasionally throw transient errors, and
     // a one-off failure shouldn't leave a paid shipment without a label. Both
@@ -158,6 +213,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Consume the quote only now that the label actually printed — a failed
+    // label leaves it valid so Regenerate (which re-calls this route) still
+    // works. Atomic single-use: a duplicate submit for the same quote is refused.
+    if (boundQuoteId && !labelError) {
+      await consumeQuote(boundQuoteId);
+    }
+
     // ── 1b. Below-cost backstop ──────────────────────────────────────────────
     // The freight price is set in the browser (and staff can now override it),
     // so it is an untrusted figure. carrierCostUSD comes straight from the
@@ -206,7 +268,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const collectedFreightUSD = Number(shippingUSD) || 0;
+    // Bound freight (from the quote) is the authoritative figure when binding is
+    // on; otherwise the client's collected amount.
+    const collectedFreightUSD = boundFreightUSD ?? (Number(shippingUSD) || 0);
     if (carrierCostUSD !== null && collectedFreightUSD < carrierCostUSD) {
       await appendError({
         id: randomUUID(),
@@ -253,7 +317,8 @@ export async function POST(req: NextRequest) {
       destCity: shipment.destCity ?? '',
       destState: shipment.destState ?? '',
       weightLbs: Number(shipment.weightLbs) || 0,
-      shippingUSD: Number(shippingUSD),
+      // Server-authoritative when binding is on; the collected client figure otherwise.
+      shippingUSD: boundFreightUSD ?? Number(shippingUSD),
       insuranceUSD: collectedInsuranceUSD,
       packingFeeUSD: Number(packingFeeUSD ?? 0),
       cardFeeUSD: Number(cardFeeUSD) > 0 ? Number(cardFeeUSD) : undefined,

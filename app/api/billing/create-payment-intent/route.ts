@@ -3,13 +3,12 @@ import { randomUUID } from 'crypto';
 import { sanitizeEmail } from '@/lib/email';
 import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
 import { appendError } from '@/lib/errorLog';
+import { paymentBindingEnabled, getValidQuote } from '@/lib/quoteStore';
 
 /**
- * STOPGAP ceiling (2026-09-10), removed once server-side quote binding lands.
- * The charge amount is currently client-supplied; until it is recomputed from a
- * stored quote, cap it so a tampered request cannot charge an absurd amount. A
- * real shipping label + insurance stays well under this; legitimate overages
- * show up in the error log and the cap can be raised.
+ * Ceiling on any single charge. With payment binding OFF this is the only guard
+ * on a client-supplied amount; with binding ON it is a backstop on the
+ * server-recomputed amount. Real label + insurance stays well under it.
  */
 const MAX_CHARGE_USD = 2000;
 
@@ -22,20 +21,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { amountUSD, paymentMethodId, carrier, serviceName, customerEmail, customerName, saveCard, shipmentDetails } =
+    const { amountUSD, paymentMethodId, carrier, serviceName, customerEmail, customerName, saveCard, shipmentDetails, quoteIds, extrasUSD } =
       await req.json();
 
-    if (!amountUSD || Number(amountUSD) <= 0) {
+    // ── Payment binding (flag-gated) ─────────────────────────────────────────
+    // With PAYMENT_BINDING_ENABLED and quoteIds present, the FREIGHT is
+    // recomputed from the server-stored quotes and the client's amount is
+    // ignored for freight — this is what stops a tampered browser from naming
+    // its own price. Insurance/packing/duties pass through as extrasUSD (small,
+    // and insurance is re-priced again in submit). With the flag off, or no
+    // quoteIds, the client amount is used exactly as before.
+    //
+    // NB: the Stripe Terminal reader uses a SEPARATE route (/api/terminal/
+    // collect) and is intentionally NOT bound here — tap-and-pay is unchanged.
+    let chargeUSD = Number(amountUSD);
+    let boundQuoteIds: string[] = [];
+    if (paymentBindingEnabled() && Array.isArray(quoteIds) && quoteIds.length > 0) {
+      let freight = 0;
+      for (const raw of quoteIds) {
+        const q = await getValidQuote(String(raw));
+        if (!q) {
+          return NextResponse.json(
+            { error: 'Your shipping quote expired. Please re-quote the shipment and try again.' },
+            { status: 409 }
+          );
+        }
+        freight += q.retailUSD;
+        boundQuoteIds.push(q.quoteId);
+      }
+      const extras = Math.max(0, Number(extrasUSD) || 0);
+      chargeUSD = Math.round((freight + extras) * 100) / 100;
+    }
+
+    if (!chargeUSD || chargeUSD <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
-    if (Number(amountUSD) > MAX_CHARGE_USD) {
+    if (chargeUSD > MAX_CHARGE_USD) {
       await appendError({
         id: randomUUID(),
         timestamp: new Date().toISOString(),
         route: 'billing/create-payment-intent',
         status: 400,
-        message: `Charge amount $${Number(amountUSD).toFixed(2)} exceeds the $${MAX_CHARGE_USD} ceiling — refused. Client-supplied amount; check for tampering or raise the cap.`,
-        requestSummary: { amountUSD: Number(amountUSD), carrier, serviceName },
+        message: `Charge amount $${chargeUSD.toFixed(2)} exceeds the $${MAX_CHARGE_USD} ceiling — refused. ${boundQuoteIds.length ? 'Recomputed from quotes.' : 'Client-supplied amount; check for tampering.'} Raise the cap if legitimate.`,
+        requestSummary: { chargeUSD, carrier, serviceName, bound: boundQuoteIds.length > 0 },
       });
       return NextResponse.json({ error: 'Amount exceeds the allowed maximum.' }, { status: 400 });
     }
@@ -62,7 +90,7 @@ export async function POST(req: NextRequest) {
         funding = 'unknown'; // fee-safe default (no surcharge)
       }
     }
-    const { feeUSD, totalUSD } = computeCardFee(Number(amountUSD), funding);
+    const { feeUSD, totalUSD } = computeCardFee(chargeUSD, funding);
     const amountCents = Math.round(totalUSD * 100);
 
     // When the sender opts in, attach the charge to a (reusable) Stripe customer
@@ -97,6 +125,9 @@ export async function POST(req: NextRequest) {
         destZip: String(shipmentDetails?.destZip ?? ''),
         weightLbs: String(shipmentDetails?.weightLbs ?? ''),
         cardFeeUSD: feeUSD.toFixed(2),
+        // Recorded so submit can confirm the label being minted was paid for by
+        // THIS PaymentIntent (empty when binding is off).
+        quoteIds: boundQuoteIds.join(','),
       },
     });
 
