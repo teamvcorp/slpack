@@ -41,6 +41,18 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Partner API (server-to-server) self-authenticates in each Node route with a
+  // static credential (X-Partner-Id / X-Partner-Secret), verified against Mongo
+  // via scrypt — which the Edge proxy cannot do. So the proxy steps aside for
+  // the whole /api/partner/ prefix and lets withPartnerAuth do the checking.
+  // This never weakens the admin gate: a partner credential is a pair of headers,
+  // never the admin cookie or the x-admin-internal header, and there are no admin
+  // routes under /api/partner. The feature is itself inert unless
+  // PARTNER_API_SECRET is set (each route 404s otherwise).
+  if (pathname.startsWith('/api/partner/')) {
+    return NextResponse.next();
+  }
+
   // Only /admin pages and /api routes are protected.
   if (!isApi && !isAdminPage) {
     return NextResponse.next();

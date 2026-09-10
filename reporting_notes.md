@@ -284,3 +284,56 @@ It was worth removing rather than leaving: it had no concept of a voided
 shipment, so anyone who found it would have gotten revenue numbers that quietly
 disagreed with the Sales tab. Recoverable from history at d604af7 if ever
 needed.
+
+---
+
+## Partner Shipping API — collections, indexes, and enabling (added 2026-09-10)
+
+A separate, credentialed server-to-server API (`/api/partner/*`) that lets the
+sister site mainstreet-shops.com buy labels. Fully isolated from the counter —
+its own routes, its own auth, and its own collections. Contract for the other
+team: `PARTNER_API.md`. Design/security notes: `security_notes.md`.
+
+### Collections (all new; the counter's `shipments`/`sales` are untouched)
+
+- **`partners`** — issued credentials. `secretHash`/`secretSalt` are scrypt; the
+  plaintext secret is shown once and never stored.
+- **`partnerQuotes`** — single-use retail quotes (dest + package + mode + price),
+  TTL'd like the counter's `quotes`.
+- **`partnerShipments`** — the partner revenue/label record (retail + carrier
+  cost for the shop; partners only ever read a retail-only projection).
+- **`partnerApiEvents`** — append-only audit of every partner request.
+
+### Indexes (create by hand against Atlas, same as §4 above)
+
+```js
+use slpack
+db.partners.createIndex(         { keyId: 1 },      { unique: true, name: 'keyId_unique' })
+db.partners.createIndex(         { partnerId: 1 },  { unique: true, name: 'partnerId_unique' })
+db.partnerQuotes.createIndex(    { quoteId: 1 },    { unique: true, name: 'quoteId_unique' })
+db.partnerQuotes.createIndex(    { expiresAt: 1 },  { expireAfterSeconds: 0, name: 'ttl_expiresAt' })
+db.partnerShipments.createIndex( { partnerId: 1, createdAt: -1 }, { name: 'partner_recent' })
+db.partnerShipments.createIndex( { partnerId: 1, quoteId: 1 },    { name: 'partner_quote' })
+db.partnerShipments.createIndex( { partnerId: 1, paymentIntentId: 1 }, { name: 'partner_pi' })
+db.partnerShipments.createIndex( { status: 1, createdAt: -1 },   { name: 'status_recent' })
+db.partnerApiEvents.createIndex( { at: 1 }, { expireAfterSeconds: 7776000, name: 'ttl_at_90d' })
+```
+
+The `partnerQuotes` TTL uses `expireAfterSeconds: 0` because each doc carries its
+own `expiresAt`; the `partnerApiEvents` TTL keeps 90 days. The
+`partner_quote` / `partner_pi` indexes back the idempotent-replay and
+one-payment-one-shipment lookups on the create path.
+
+### Enabling (fail-closed, like SESSION_SECRET / PAYMENT_BINDING_ENABLED)
+
+1. Set **`PARTNER_API_SECRET`** to any non-empty value (master switch). While it
+   is unset, every `/api/partner/*` route returns 404 — the feature does not
+   exist, so deploying the code changes nothing.
+2. Optional: `PARTNER_PICKUP_NOTIFY_EMAIL` (where pickup & needs-review notices
+   go; defaults to `SITE.email`). `NEXT_PUBLIC_BASE_URL` must be the site's own
+   origin (already set) — the partner routes call the carrier rate/label routes
+   over internal HTTP, exactly as `shipping/submit` does.
+3. Create the indexes above.
+4. Admin → **Partners** → issue a credential; copy the one-time secret and give
+   the `keyId` + secret to the partner (they send them as `X-Partner-Id` /
+   `X-Partner-Secret`). Deactivate or rotate from the same screen.
