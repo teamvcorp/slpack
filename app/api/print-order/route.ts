@@ -24,11 +24,27 @@ function esc(value: unknown): string {
   );
 }
 
-/** Only accept Vercel Blob URLs we minted — never email arbitrary links. */
+/**
+ * Accept only a Vercel Blob URL from OUR store — never email an arbitrary link.
+ *
+ * The old check was `.endsWith('.blob.vercel-storage.com')`, but that namespace
+ * is shared: any Vercel tenant's public blob URL passed it, so an attacker could
+ * host a malicious file on their own store and have us email the link to staff.
+ * (2026-09-10)
+ *
+ * Now requires the `.public.` namespace, and — when BLOB_PUBLIC_HOSTNAME is set
+ * to this store's host (read it off any uploaded file URL, e.g.
+ * `abc123.public.blob.vercel-storage.com`) — an exact host match, which is the
+ * complete fix. Left unset it degrades to the namespace check rather than
+ * breaking uploads.
+ */
 function isBlobUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.protocol === 'https:' && u.hostname.endsWith('.blob.vercel-storage.com');
+    if (u.protocol !== 'https:') return false;
+    const pinned = process.env.BLOB_PUBLIC_HOSTNAME?.trim();
+    if (pinned) return u.hostname === pinned;
+    return u.hostname.endsWith('.public.blob.vercel-storage.com');
   } catch {
     return false;
   }

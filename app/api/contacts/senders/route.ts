@@ -3,7 +3,9 @@ import { searchSenders } from '@/lib/contacts';
 
 // GET /api/contacts/senders?q=term — typeahead search of senders
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get('q')?.trim() ?? '';
+  // Cap the term length: the search runs an unindexed regex over the contacts,
+  // so an unbounded query is a needless collection-scan cost. (2026-09-10)
+  const q = (req.nextUrl.searchParams.get('q')?.trim() ?? '').slice(0, 100);
   if (q.length < 2) return NextResponse.json({ results: [] });
   try {
     const results = await searchSenders(q);

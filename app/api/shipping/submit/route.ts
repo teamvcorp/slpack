@@ -38,6 +38,15 @@ export async function POST(req: NextRequest) {
       suppressEmail,
     } = await req.json();
 
+    // Whitelist the carrier before it is interpolated into the internal label
+    // URL below (`/api/shipping/${carrier}/label`). Unconstrained, a value like
+    // "../.." could redirect that authenticated self-call to another route on
+    // our origin. (2026-09-10)
+    const VALID_CARRIERS = ['fedex', 'ups', 'usps', 'dhl'];
+    if (!VALID_CARRIERS.includes(carrier)) {
+      return NextResponse.json({ error: 'Unknown carrier' }, { status: 400 });
+    }
+
     // ── 0. Re-price insurance server-side ────────────────────────────────────
     // The browser picks the declared value, so it is an untrusted input: derive
     // the premium here from valueUSD instead of accepting the client's figure,
@@ -226,7 +235,7 @@ export async function POST(req: NextRequest) {
       destZip: shipment.destZip,
       destCity: shipment.destCity ?? '',
       destState: shipment.destState ?? '',
-      weightLbs: shipment.weightLbs,
+      weightLbs: Number(shipment.weightLbs) || 0,
       shippingUSD: Number(shippingUSD),
       insuranceUSD: collectedInsuranceUSD,
       packingFeeUSD: Number(packingFeeUSD ?? 0),

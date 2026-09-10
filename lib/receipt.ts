@@ -341,7 +341,7 @@ export function buildShipmentReceiptHtml(entry: ShipmentReceiptFields): string {
         <tr><td style="padding:4px 0;color:#666;">From</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${esc(entry.originZip)}</td></tr>
         <tr><td style="padding:4px 0;color:#666;">To</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${toLine}</td></tr>
         ${attnRow}
-        <tr><td style="padding:4px 0;color:#666;">Weight</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${entry.weightLbs} lbs</td></tr>
+        <tr><td style="padding:4px 0;color:#666;">Weight</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${esc(entry.weightLbs)} lbs</td></tr>
         ${sigRow}
         <tr style="border-top:1px solid #eee;"><td style="padding:8px 0 4px;color:#666;">Shipping</td><td style="padding:8px 0 4px;text-align:right;">${money(entry.shippingUSD)}</td></tr>
         ${insRow}
@@ -386,10 +386,10 @@ export function buildDropoffReceiptHtml(input: DropoffRecord | DropoffRecord[]):
       const url = trackingUrl(record.carrier, record.trackingNumber);
       const trackBlock = url
         ? `<div style="text-align:center;margin:14px 0;">
-         <a href="${url}" style="display:inline-block;background:#1a2744;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;padding:10px 18px;border-radius:6px;">Track at ${carrierLabel} →</a>
+         <a href="${url}" style="display:inline-block;background:#1a2744;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;padding:10px 18px;border-radius:6px;">Track at ${esc(carrierLabel)} →</a>
          <div style="margin-top:6px;font-family:Arial,sans-serif;font-size:10px;color:#888;word-break:break-all;">${url}</div>
        </div>`
-        : `<div style="text-align:center;margin:14px 0;font-family:Arial,sans-serif;font-size:11px;color:#888;">Track with ${carrierLabel} using your tracking number.</div>`;
+        : `<div style="text-align:center;margin:14px 0;font-family:Arial,sans-serif;font-size:11px;color:#888;">Track with ${esc(carrierLabel)} using your tracking number.</div>`;
 
       return `<div style="border-bottom:1px dashed #ddd;padding-bottom:10px;margin-bottom:10px;">
     <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.06em;">Carrier</div>
@@ -460,9 +460,9 @@ export function buildDropoffReportHtml(
   const carrierChips = Object.entries(byCarrier)
     .map(
       ([c, n]) =>
-        `<span style="display:inline-block;border:1px solid #ddd;border-radius:6px;padding:4px 10px;margin:2px;font-size:12px;color:#1a2744;"><strong>${
+        `<span style="display:inline-block;border:1px solid #ddd;border-radius:6px;padding:4px 10px;margin:2px;font-size:12px;color:#1a2744;"><strong>${esc(
           DROPOFF_CARRIER_LABELS[c as keyof typeof DROPOFF_CARRIER_LABELS] ?? c
-        }</strong>: ${n}</span>`
+        )}</strong>: ${esc(n)}</span>`
     )
     .join('');
 

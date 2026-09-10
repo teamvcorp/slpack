@@ -11,7 +11,20 @@ export async function POST(req: NextRequest) {
     const to = sanitizeEmail(body.email);
     const url = typeof body.url === 'string' ? body.url : '';
     if (!to) return NextResponse.json({ error: 'A valid email is required' }, { status: 400 });
-    if (!/^https:\/\/.+/.test(url)) return NextResponse.json({ error: 'Invalid link' }, { status: 400 });
+    // Constrain the link to Stripe's verification host (2026-09-10). This route
+    // emails an arbitrary caller-supplied URL from our verified sender domain;
+    // `/^https:\/\/.+/` alone made it a branded phishing relay. Stripe Identity
+    // links live on verify.stripe.com.
+    let linkHost = '';
+    try {
+      const parsed = new URL(url);
+      linkHost = parsed.protocol === 'https:' ? parsed.hostname : '';
+    } catch {
+      linkHost = '';
+    }
+    if (linkHost !== 'verify.stripe.com') {
+      return NextResponse.json({ error: 'Invalid link' }, { status: 400 });
+    }
 
     const { Resend } = await import('resend');
     const resend = new Resend(process.env.RESEND_API_KEY);

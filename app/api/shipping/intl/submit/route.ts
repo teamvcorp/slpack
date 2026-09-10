@@ -35,6 +35,13 @@ export async function POST(req: NextRequest) {
       suppressEmail,
     } = await req.json();
 
+    // Whitelist the carrier before it is interpolated into the internal label
+    // URL (`/api/shipping/intl/${carrier}/label`). International supports only
+    // FedEx and UPS. (2026-09-10)
+    if (carrier !== 'fedex' && carrier !== 'ups') {
+      return NextResponse.json({ error: 'Unknown carrier' }, { status: 400 });
+    }
+
     // ── 0. Re-price insurance server-side (see /api/shipping/submit) ─────────
     // Same rule as domestic: the declared value is an untrusted client input, so
     // the premium is derived here and the value clamped to the carrier cap.
@@ -130,7 +137,7 @@ export async function POST(req: NextRequest) {
       destZip: shipment.destZip,
       destCity: shipment.destCity ?? '',
       destState: shipment.destState ?? '',
-      weightLbs: shipment.weightLbs,
+      weightLbs: Number(shipment.weightLbs) || 0,
       shippingUSD: Number(shippingUSD),
       insuranceUSD: collectedInsuranceUSD,
       packingFeeUSD: Number(packingFeeUSD ?? 0),

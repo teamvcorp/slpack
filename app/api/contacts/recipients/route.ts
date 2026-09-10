@@ -6,7 +6,8 @@ import { searchRecipients } from '@/lib/contacts';
 // Without: a global recipient lookup by query.
 export async function GET(req: NextRequest) {
   const senderId = req.nextUrl.searchParams.get('senderId')?.trim() || undefined;
-  const q = req.nextUrl.searchParams.get('q')?.trim() || undefined;
+  // Cap term length — unindexed regex scan; see contacts/senders. (2026-09-10)
+  const q = req.nextUrl.searchParams.get('q')?.trim().slice(0, 100) || undefined;
 
   if (!senderId && (!q || q.length < 2)) return NextResponse.json({ results: [] });
 
