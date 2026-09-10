@@ -20,6 +20,21 @@ function money(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+/** "12 × 10 × 8 in" when all three dimensions are present and positive, else null. */
+export function formatDims(lengthIn?: number, widthIn?: number, heightIn?: number): string | null {
+  const d = [lengthIn, widthIn, heightIn].map((v) => Number(v));
+  if (d.some((n) => !Number.isFinite(n) || n <= 0)) return null;
+  return `${d[0]} × ${d[1]} × ${d[2]} in`;
+}
+
+/** A receipt table row for the parcel size, or '' when dimensions are missing. */
+function formatDimsRow(lengthIn?: number, widthIn?: number, heightIn?: number): string {
+  const s = formatDims(lengthIn, widthIn, heightIn);
+  return s
+    ? `<tr><td style="padding:4px 0;color:#666;">Size</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${s}</td></tr>`
+    : '';
+}
+
 /** Escape user/vendor-supplied text before interpolating into receipt HTML. */
 function esc(value: unknown): string {
   return String(value ?? '').replace(
@@ -145,6 +160,11 @@ export interface CombinedPackageLine {
   serviceName: string;
   trackingNumber: string | null;
   amountUSD: number;
+  /** Parcel weight/size for a fuller receipt. Optional; shown when present. */
+  weightLbs?: number;
+  lengthIn?: number;
+  widthIn?: number;
+  heightIn?: number;
 }
 
 export interface CombinedReceiptData {
@@ -221,8 +241,16 @@ export function buildCombinedReceiptHtml(data: CombinedReceiptData): string {
         const tracking = p.trackingNumber && p.trackingNumber !== 'PENDING'
           ? `<div style="font-size:11px;color:#888;word-break:break-all;">${esc(p.trackingNumber)}</div>`
           : `<div style="font-size:11px;color:#b45309;">Label pending</div>`;
+        const dims = formatDims(p.lengthIn, p.widthIn, p.heightIn);
+        const details = [
+          Number(p.weightLbs) > 0 ? `${esc(p.weightLbs)} lbs` : '',
+          dims ?? '',
+        ].filter(Boolean).join(' · ');
+        const detailRow = details
+          ? `<div style="font-size:11px;color:#888;">${details}</div>`
+          : '';
         return `<tr>
-          <td style="padding:3px 0;vertical-align:top;">${esc(carrierLabel)} — ${esc(p.serviceName)}${tracking}</td>
+          <td style="padding:3px 0;vertical-align:top;">${esc(carrierLabel)} — ${esc(p.serviceName)}${detailRow}${tracking}</td>
           <td style="padding:3px 0;text-align:right;vertical-align:top;white-space:nowrap;">${money(p.amountUSD)}</td>
         </tr>`;
       })
@@ -285,6 +313,7 @@ export function buildCombinedReceiptHtml(data: CombinedReceiptData): string {
  */
 export function buildShipmentReceiptHtml(entry: ShipmentReceiptFields): string {
   const carrierLabel = CARRIER_LABELS[entry.carrier] ?? entry.carrier.toUpperCase();
+  const dimsRow = formatDimsRow(entry.lengthIn, entry.widthIn, entry.heightIn);
   const insRow =
     entry.insuranceUSD > 0
       ? `<tr><td style="padding:4px 0;color:#666;">Insurance</td><td style="padding:4px 0;text-align:right;">${money(entry.insuranceUSD)}</td></tr>`
@@ -342,6 +371,7 @@ export function buildShipmentReceiptHtml(entry: ShipmentReceiptFields): string {
         <tr><td style="padding:4px 0;color:#666;">To</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${toLine}</td></tr>
         ${attnRow}
         <tr><td style="padding:4px 0;color:#666;">Weight</td><td style="padding:4px 0;text-align:right;color:#1a2744;">${esc(entry.weightLbs)} lbs</td></tr>
+        ${dimsRow}
         ${sigRow}
         <tr style="border-top:1px solid #eee;"><td style="padding:8px 0 4px;color:#666;">Shipping</td><td style="padding:8px 0 4px;text-align:right;">${money(entry.shippingUSD)}</td></tr>
         ${insRow}

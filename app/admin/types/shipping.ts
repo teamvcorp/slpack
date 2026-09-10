@@ -200,6 +200,11 @@ export interface ShipmentLogEntry {
   destCity: string;
   destState: string;
   weightLbs: number;
+  /** Parcel dimensions (inches). Optional — older entries predate storing them
+   *  (2026-09-10); shown on receipts when present. */
+  lengthIn?: number;
+  widthIn?: number;
+  heightIn?: number;
   shippingUSD: number;
   insuranceUSD: number;
   packingFeeUSD?: number;
@@ -281,6 +286,9 @@ export type ShipmentReceiptFields = Pick<
   | 'destState'
   | 'destAttention'
   | 'weightLbs'
+  | 'lengthIn'
+  | 'widthIn'
+  | 'heightIn'
   | 'signature'
   | 'trackingNumber'
   | 'customerName'

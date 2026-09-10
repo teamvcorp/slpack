@@ -334,6 +334,9 @@ export async function POST(req: NextRequest) {
       destCity: shipment.destCity ?? '',
       destState: shipment.destState ?? '',
       weightLbs: Number(shipment.weightLbs) || 0,
+      lengthIn: Number(shipment.lengthIn) || undefined,
+      widthIn: Number(shipment.widthIn) || undefined,
+      heightIn: Number(shipment.heightIn) || undefined,
       // Server-authoritative when binding is on; the collected client figure otherwise.
       shippingUSD: boundFreightUSD ?? Number(shippingUSD),
       insuranceUSD: collectedInsuranceUSD,

@@ -14,7 +14,7 @@
  */
 import { printHtml } from './printHtml';
 import type { EposPrinter } from '@/lib/eposReceipt';
-import { renderTest, ensurePromoQr } from '@/lib/eposReceipt';
+import { renderTest, ensurePromoQr, ensureTrackingQrs } from '@/lib/eposReceipt';
 
 interface PrinterSettings {
   ip: string;
@@ -136,7 +136,11 @@ function runJob(printer: EposPrinter, render: (p: EposPrinter) => void): Promise
  */
 export async function printReceipt(
   render: (p: EposPrinter) => void,
-  fallbackHtml: string
+  fallbackHtml: string,
+  /** Carrier tracking URLs to turn into per-package QR bitmaps before printing.
+   *  The sync renderers can only ADD a ready canvas, so generation happens here
+   *  first. Omit for receipts with nothing to track (promo QR only). */
+  trackingUrls: string[] = []
 ): Promise<void> {
   let settings: PrinterSettings;
   try {
@@ -151,7 +155,9 @@ export async function printReceipt(
   }
 
   try {
-    await ensurePromoQr(); // generate the promo QR bitmap so the sync renderer can add it
+    // Generate the QR bitmaps the sync renderer will add: the promo QR (register
+    // / no-tracking receipts) and any per-package tracking QRs.
+    await Promise.all([ensurePromoQr(), ensureTrackingQrs(trackingUrls)]);
     const printer = await connect(settings.ip, settings.port);
     await runJob(printer, render);
   } catch (err) {

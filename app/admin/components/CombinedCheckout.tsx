@@ -5,6 +5,7 @@ import { buildCombinedReceiptHtml, type CombinedPackageLine, type CombinedReceip
 import { sanitizeEmail } from '@/lib/email';
 import { printReceipt } from './receiptPrinter';
 import { renderCombined } from '@/lib/eposReceipt';
+import { trackingUrl } from '@/lib/dropoff';
 import { getTerminalEnabled, startReaderPayment, waitForReader, cancelReaderPayment } from './stripeTerminal';
 import ShippingLabelModal from './ShippingLabelModal';
 import type { RegisterLineItem, SaleRecord } from '../types/register';
@@ -184,6 +185,10 @@ export default function CombinedCheckout({
         serviceName: item.rate.serviceName,
         trackingNumber: r && !r.labelError ? r.trackingNumber : null,
         amountUSD,
+        weightLbs: item.shipment.weightLbs,
+        lengthIn: item.shipment.lengthIn,
+        widthIn: item.shipment.widthIn,
+        heightIn: item.shipment.heightIn,
       };
     });
   }
@@ -206,7 +211,10 @@ export default function CombinedCheckout({
       cashTenderedUSD: pm === 'cash' && cashInput ? cashTendered : undefined,
       changeDueUSD: pm === 'cash' && cashInput ? changeDue : undefined,
     };
-    printReceipt((p) => renderCombined(p, data, { openDrawer }), buildCombinedReceiptHtml(data));
+    const trackingUrls = data.packages
+      .map((pk) => trackingUrl(pk.carrier as Parameters<typeof trackingUrl>[0], pk.trackingNumber ?? ''))
+      .filter((u): u is string => Boolean(u));
+    printReceipt((p) => renderCombined(p, data, { openDrawer }), buildCombinedReceiptHtml(data), trackingUrls);
   }
 
   // Shared post-payment sequence: record goods, buy labels, print + email one receipt.

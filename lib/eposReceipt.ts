@@ -16,6 +16,7 @@ import type { SaleRecord } from '@/app/admin/types/register';
 import type { DropoffRecord } from '@/app/admin/types/dropoff';
 import type { CombinedReceiptData } from '@/lib/receipt';
 import { DROPOFF_CARRIER_LABELS, trackingUrl } from '@/lib/dropoff';
+import type { DropoffCarrier } from '@/app/admin/types/dropoff';
 import { SITE } from '@/lib/siteConfig';
 import QRCode from 'qrcode';
 
@@ -81,6 +82,34 @@ export async function ensurePromoQr(): Promise<void> {
     promoQrCanvas = canvas;
   } catch {
     promoQrCanvas = null; // fall back to caption + URL text
+  }
+}
+
+/**
+ * Dynamic QR cache for per-package tracking codes. Unlike the promo QR these
+ * vary per shipment, so each URL's bitmap is generated on demand and cached by
+ * URL (the sync renderers can only ADD a ready canvas — generation must happen
+ * first, via ensureTrackingQrs below). Capped so a long counter session can't
+ * grow it without bound.
+ */
+const trackingQrCache = new Map<string, HTMLCanvasElement>();
+const TRACKING_QR_CACHE_MAX = 60;
+
+/** Generate + cache the QR bitmaps for these URLs. Await BEFORE printing. */
+export async function ensureTrackingQrs(urls: string[]): Promise<void> {
+  if (typeof document === 'undefined') return;
+  for (const url of urls) {
+    if (!url || trackingQrCache.has(url)) continue;
+    try {
+      const canvas = document.createElement('canvas');
+      await QRCode.toCanvas(canvas, url, { margin: 1, width: 200 });
+      if (trackingQrCache.size >= TRACKING_QR_CACHE_MAX) {
+        trackingQrCache.delete(trackingQrCache.keys().next().value as string);
+      }
+      trackingQrCache.set(url, canvas);
+    } catch {
+      /* fall back to the printed URL text */
+    }
   }
 }
 
@@ -196,6 +225,42 @@ function promoQr(p: EposPrinter): void {
   p.addText(PROMO_QR_URL + '\n'); // scan-free fallback (and shown if the QR bitmap is unavailable)
 }
 
+/**
+ * Per-package tracking QR — the carrier's tracking page with this number
+ * pre-filled, printed as a raster image (see the promo QR note on why not a
+ * native symbol). Falls back to the printed URL if the bitmap wasn't generated
+ * (see ensureTrackingQrs, which the printer bridge awaits before rendering).
+ * No-ops for an untracked/pending package.
+ */
+function trackingQr(p: EposPrinter, carrier: string, trackingNumber: string | null): void {
+  if (!trackingNumber || trackingNumber === 'PENDING') return;
+  const url = trackingUrl(carrier as DropoffCarrier, trackingNumber);
+  if (!url) return;
+  p.addTextAlign(p.ALIGN_CENTER);
+  p.addText('Track your package\n');
+  const canvas = trackingQrCache.get(url) ?? null;
+  const ctx = canvas?.getContext('2d') ?? null;
+  if (ctx && canvas) {
+    p.addImage(ctx, 0, 0, canvas.width, canvas.height, p.COLOR_1, p.MODE_MONO);
+  }
+  p.addText(url + '\n'); // scan-free fallback (and shown if the bitmap is unavailable)
+  p.addTextAlign(p.ALIGN_LEFT);
+}
+
+/** "5 lbs · 12 × 10 × 8 in" from weight + dims (either part omitted if absent). */
+function packageDetails(
+  weightLbs?: number,
+  lengthIn?: number,
+  widthIn?: number,
+  heightIn?: number
+): string {
+  const parts: string[] = [];
+  if (Number(weightLbs) > 0) parts.push(`${Number(weightLbs)} lbs`);
+  const d = [lengthIn, widthIn, heightIn].map((v) => Number(v));
+  if (d.every((n) => Number.isFinite(n) && n > 0)) parts.push(`${d[0]} x ${d[1]} x ${d[2]} in`);
+  return parts.join(' · ');
+}
+
 /** Feed, optionally open the cash drawer, then cut. Always the last call. */
 function finish(p: EposPrinter, openDrawer: boolean): void {
   p.addTextAlign(p.ALIGN_LEFT);
@@ -270,11 +335,15 @@ export function renderCombined(p: EposPrinter, data: CombinedReceiptData, opts: 
     for (const pk of data.packages) {
       const label = CARRIER_LABELS[pk.carrier] ?? pk.carrier.toUpperCase();
       twoCol(p, `${label} ${clean(pk.serviceName)}`, money(pk.amountUSD));
+      const details = packageDetails(pk.weightLbs, pk.lengthIn, pk.widthIn, pk.heightIn);
+      if (details) p.addText(`  ${details}\n`);
       if (pk.trackingNumber && pk.trackingNumber !== 'PENDING') {
         p.addText(`  ${clean(pk.trackingNumber)}\n`);
       } else {
         p.addText('  Label pending\n');
       }
+      // Per-package tracking QR — carrier tracking page with the number filled in.
+      trackingQr(p, pk.carrier, pk.trackingNumber);
     }
   }
 
@@ -294,7 +363,10 @@ export function renderCombined(p: EposPrinter, data: CombinedReceiptData, opts: 
   }
 
   footer(p);
-  promoQr(p);
+  // Shipments already printed a per-package tracking QR above; the promo QR is
+  // only for receipts with nothing to track (e.g. register-only sales, which use
+  // renderSale). Keep it here only when there were no packages.
+  if (data.packages.length === 0) promoQr(p);
   finish(p, !!opts.openDrawer && data.paymentMethod === 'cash');
 }
 
@@ -319,8 +391,8 @@ export function renderDropoff(p: EposPrinter, input: DropoffRecord | DropoffReco
     bold(p, true);
     p.addText(`${clean(r.trackingNumber)}\n`);
     bold(p, false);
-    const url = trackingUrl(r.carrier, r.trackingNumber);
-    if (url) p.addText(`Track: ${url}\n`);
+    // Scannable tracking QR (with URL text fallback) per dropped-off package.
+    trackingQr(p, r.carrier, r.trackingNumber);
   }
 
   divider(p);
@@ -330,7 +402,6 @@ export function renderDropoff(p: EposPrinter, input: DropoffRecord | DropoffReco
       ? `These ${count} packages were accepted for drop-off.\nThank you!\n`
       : 'This package was accepted for drop-off.\nThank you!\n'
   );
-  promoQr(p);
   finish(p, false);
 }
 

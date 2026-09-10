@@ -93,7 +93,10 @@ export default function DropoffScanPage() {
       // Receipt lists oldest-first; `scans` is newest-first.
       if (printReceipt) {
         const ordered = [...scans].reverse();
-        printReceiptToPrinter((p) => renderDropoff(p, ordered), buildDropoffReceiptHtml(ordered));
+        const urls = ordered
+          .map((r) => trackingUrl(r.carrier, r.trackingNumber))
+          .filter((u): u is string => Boolean(u));
+        printReceiptToPrinter((p) => renderDropoff(p, ordered), buildDropoffReceiptHtml(ordered), urls);
       }
 
       const email = customerEmail.trim();
@@ -338,7 +341,10 @@ export default function DropoffScanPage() {
                               onClick={() =>
                                 printReceiptToPrinter(
                                   (p) => renderDropoff(p, s),
-                                  buildDropoffReceiptHtml(s)
+                                  buildDropoffReceiptHtml(s),
+                                  [trackingUrl(s.carrier, s.trackingNumber)].filter(
+                                    (u): u is string => Boolean(u)
+                                  )
                                 )
                               }
                               className="rounded-md border border-navy/15 bg-white px-2 py-0.5 font-medium text-navy/70 hover:bg-cream"

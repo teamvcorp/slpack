@@ -6,6 +6,7 @@ import { sanitizeEmail } from '@/lib/email';
 import { buildCombinedReceiptHtml, type CombinedPackageLine, type CombinedReceiptData } from '@/lib/receipt';
 import { printReceipt } from './receiptPrinter';
 import { renderCombined } from '@/lib/eposReceipt';
+import { trackingUrl } from '@/lib/dropoff';
 import { getTerminalEnabled, startReaderPayment, waitForReader, cancelReaderPayment } from './stripeTerminal';
 
 interface Props {
@@ -234,6 +235,10 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
         serviceName: item.rate.serviceName,
         trackingNumber: r && !r.labelError ? r.trackingNumber : null,
         amountUSD,
+        weightLbs: item.shipment.weightLbs,
+        lengthIn: item.shipment.lengthIn,
+        widthIn: item.shipment.widthIn,
+        heightIn: item.shipment.heightIn,
       };
     });
     const receiptData: CombinedReceiptData = {
@@ -243,9 +248,13 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
       packages,
       cardFeeUSD: feeUSD > 0 ? feeUSD : undefined,
     };
+    const trackingUrls = packages
+      .map((pk) => trackingUrl(pk.carrier as Parameters<typeof trackingUrl>[0], pk.trackingNumber ?? ''))
+      .filter((u): u is string => Boolean(u));
     printReceipt(
       (p) => renderCombined(p, receiptData, { openDrawer: true }),
-      buildCombinedReceiptHtml(receiptData)
+      buildCombinedReceiptHtml(receiptData),
+      trackingUrls
     );
 
     setStep('success');
