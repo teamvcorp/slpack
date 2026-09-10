@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from 'react';
+import Reconciliation from './Reconciliation';
 
 /**
  * Admin → Partners. Issue and manage credentials for the Partner Shipping API
@@ -274,6 +275,9 @@ export default function PartnersPage() {
           </div>
         )}
       </div>
+
+      {/* Carrier adjustment reconciliation — link a re-rated cost to its package */}
+      <Reconciliation />
     </div>
   );
 }

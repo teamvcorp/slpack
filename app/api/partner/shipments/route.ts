@@ -203,6 +203,13 @@ export const POST = withPartnerAuth(ROUTE, async (req, { partner, ip, keyId }) =
     retailUSD: quote.retailUSD,
     freightRetailUSD: quote.freightRetailUSD,
     packingFeeUSD: quote.packingFeeUSD,
+    // Reconciliation baseline — denormalized so it outlives the (TTL'd) quote:
+    // the package the partner DECLARED, the cost basis we quoted, and the
+    // residential flag. When a carrier re-measures the box and bills more, this
+    // is what the adjustment is compared against.
+    quotedCostBasisUSD: quote.costBasisUSD,
+    declaredPackage: quote.pkg,
+    residential: quote.dest.residential,
     paymentIntentId,
     quoteId,
     orderRef,
@@ -235,7 +242,11 @@ export const POST = withPartnerAuth(ROUTE, async (req, { partner, ip, keyId }) =
     const record: PartnerShipment = {
       ...baseRecord,
       status: 'shipped',
-      trackingNumber: label.trackingNumber,
+      // Normalized to match the reconciliation lookup (carrier invoices quote the
+      // bare tracking number; store it the same way we search it).
+      trackingNumber: label.trackingNumber
+        ? label.trackingNumber.replace(/\s+/g, '').toUpperCase()
+        : undefined,
       labelBase64: label.labelBase64 ?? undefined,
       labelMimeType: label.labelMimeType ?? undefined,
       carrierCostUSD: label.carrierCostUSD ?? undefined,

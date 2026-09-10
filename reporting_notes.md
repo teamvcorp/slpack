@@ -316,6 +316,7 @@ db.partnerShipments.createIndex( { partnerId: 1, createdAt: -1 }, { name: 'partn
 db.partnerShipments.createIndex( { partnerId: 1, quoteId: 1 },    { name: 'partner_quote' })
 db.partnerShipments.createIndex( { partnerId: 1, paymentIntentId: 1 }, { name: 'partner_pi' })
 db.partnerShipments.createIndex( { status: 1, createdAt: -1 },   { name: 'status_recent' })
+db.partnerShipments.createIndex( { trackingNumber: 1 },          { name: 'tracking' })
 db.partnerApiEvents.createIndex( { at: 1 }, { expireAfterSeconds: 7776000, name: 'ttl_at_90d' })
 ```
 
@@ -337,3 +338,28 @@ one-payment-one-shipment lookups on the create path.
 4. Admin → **Partners** → issue a credential; copy the one-time secret and give
    the `keyId` + secret to the partner (they send them as `X-Partner-Id` /
    `X-Partner-Secret`). Deactivate or rotate from the same screen.
+
+### Carrier adjustment reconciliation (added 2026-09-10)
+
+Carriers re-measure/re-weigh at the hub and bill a correction (dimensional
+reweigh, additional handling, unbilled residential) days or weeks later,
+referencing only the **tracking number** on the invoice. So `partnerShipments`
+is a permanent ledger (no TTL) with the reconciliation baseline denormalized
+onto each record at ship time — `declaredPackage`, `quotedCostBasisUSD`,
+`carrierCostUSD` (label-time), `residential`, `trackingNumber` — because the
+quote it came from is TTL'd away in 30 minutes.
+
+- Adjustments are an **append-only** embedded array `adjustments[]` (each entry
+  immutable: `deltaUSD`, optional `adjustedCostUSD`, `reason`, corrected dims,
+  `carrierInvoiceRef`, `billbackStatus`). `reconcileSummary()` (pure) computes
+  effective cost + freight margin after adjustments.
+- Admin API `/api/admin/partner-shipments`: GET `?tracking=` (the invoice join),
+  `?partnerId=`, `?status=`, `?adjusted=1`; POST records an adjustment (locate by
+  `id` or `trackingNumber`; pass the corrected total OR the extra billed — the
+  delta is derived); PATCH updates one adjustment's `billbackStatus`.
+- Admin UI: the **Reconciliation** card on `/admin/partners` (search by tracking,
+  see declared-vs-measured + margin hit, record the adjustment, cycle billback).
+- The tracking number is normalized (spaces stripped, upper-cased) on write and
+  on lookup so the invoice join is reliable. Index: `partnerShipments.tracking`.
+- Partner-facing history stays retail-only — cost/adjustment fields are never in
+  the partner projection.
