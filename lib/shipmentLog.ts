@@ -53,6 +53,7 @@ const SHIPMENT_LIST_PROJECTION = {
   trackingNumber: 1,
   customerName: 1,
   customerEmail: 1,
+  senderEmail: 1,
   paymentMethod: 1,
   voided: 1,
   voidedAt: 1,

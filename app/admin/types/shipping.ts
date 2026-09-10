@@ -323,6 +323,7 @@ export type ShipmentListEntry = ShipmentReceiptFields &
     | 'id'
     | 'timestamp'
     | 'customerEmail'
+    | 'senderEmail'
     | 'paymentMethod'
     | 'carrierCostUSD'
     | 'listPriceUSD'

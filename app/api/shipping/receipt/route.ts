@@ -28,7 +28,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });
     }
 
-    const to = sanitizeEmail(body.to) ?? entry.customerEmail;
+    // Prefer an explicit override, then the sender (paying customer), then the
+    // recipient — matching how the receipt is sent at purchase time. (2026-09-10)
+    const to = sanitizeEmail(body.to) ?? sanitizeEmail(entry.senderEmail) ?? entry.customerEmail;
     if (!to) {
       return NextResponse.json({ error: 'No email address on this shipment — provide one to resend' }, { status: 400 });
     }

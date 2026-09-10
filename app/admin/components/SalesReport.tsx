@@ -57,8 +57,10 @@ export default function SalesReport() {
   }
 
   async function handleResend(sale: UnifiedSale) {
-    const to =
-      (sale.customerEmail || window.prompt('Email this receipt to:')?.trim()) ?? undefined;
+    // Prefer the sender (paying customer) for a shipping receipt, then the
+    // recipient, then ask. Matches how the receipt is emailed at purchase.
+    const onFile = sale.shipment?.senderEmail || sale.customerEmail || '';
+    const to = (onFile || window.prompt('Email this receipt to:')?.trim()) ?? undefined;
     if (!to) return;
 
     setBusyId(sale.id);

@@ -110,6 +110,27 @@ export default function ShipmentLogPage() {
     window.open(`/api/shipping/label/${encodeURIComponent(id)}`, '_blank', 'noopener');
   }, []);
 
+  // Resend the shipping receipt (with tracking) by email. Defaults to the
+  // address on file (sender first, server-side), or prompts for one.
+  const handleResendReceipt = useCallback(async (entry: ShipmentListEntry) => {
+    const onFile = entry.senderEmail || entry.customerEmail || '';
+    const to = (onFile || window.prompt('Email this receipt to:')?.trim()) ?? '';
+    if (!to) return;
+    setActionMessage(null);
+    try {
+      const res = await fetch('/api/shipping/receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: entry.id, to }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setActionMessage(`Receipt emailed to ${body.to}.`);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : 'Failed to send receipt');
+    }
+  }, []);
+
   const handleMarkTendered = useCallback(
     async (id: string) => {
       if (!window.confirm('Mark this shipment as tendered to the carrier?')) return;
@@ -468,6 +489,14 @@ export default function ShipmentLogPage() {
                                 title={entry.hasLabel ? 'Open label in new tab to reprint' : 'No stored label'}
                               >
                                 Print
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResendReceipt(entry)}
+                                className="rounded-lg border border-navy/15 bg-white px-2 py-1 text-xs font-medium text-navy shadow-sm transition-colors hover:bg-cream"
+                                title="Email this receipt (with tracking) to the sender, or a typed address"
+                              >
+                                Email
                               </button>
                               {!isVoided && !entry.accepted && (
                                 <button
