@@ -36,9 +36,9 @@ export async function POST(req: NextRequest) {
     } = await req.json();
 
     // Whitelist the carrier before it is interpolated into the internal label
-    // URL (`/api/shipping/intl/${carrier}/label`). International supports only
-    // FedEx and UPS. (2026-09-10)
-    if (carrier !== 'fedex' && carrier !== 'ups') {
+    // URL (`/api/shipping/intl/${carrier}/label`). International supports FedEx,
+    // UPS, and USPS. (usps added 2026-09-10)
+    if (carrier !== 'fedex' && carrier !== 'ups' && carrier !== 'usps') {
       return NextResponse.json({ error: 'Unknown carrier' }, { status: 400 });
     }
 
@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
       try {
         const { Resend } = await import('resend');
         const resend = new Resend(process.env.RESEND_API_KEY);
-        const carrierLabel = ({ fedex: 'FedEx', ups: 'UPS' } as Record<string, string>)[carrier] ?? carrier.toUpperCase();
+        const carrierLabel = ({ fedex: 'FedEx', ups: 'UPS', usps: 'USPS' } as Record<string, string>)[carrier] ?? carrier.toUpperCase();
         const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'shipping@stormlakepackandship.com';
         await resend.emails.send({
           from: `Storm Lake Pack & Ship <${fromEmail}>`,

@@ -30,12 +30,8 @@ import type {
 } from '../types/shipping';
 import type { IntlCartItem, IntlShipmentInput, CustomsInfo } from '../types/shippingIntl';
 
-// FedEx + UPS are fully shippable internationally. USPS is Stage A: rates show
-// (preview) but selection is gated until the label/customs path is wired.
+// FedEx, UPS, and USPS all support the international flow (rates + label + customs).
 type IntlCarrier = 'fedex' | 'ups' | 'usps';
-
-/** Carriers whose rates can be selected and shipped. USPS is preview-only for now. */
-type ShippableCarrier = 'fedex' | 'ups';
 
 const BLANK: Omit<CarrierResult, 'carrier'> = { rates: [], error: null, loading: false, lastFetched: null };
 const INITIAL_RESULTS: Record<IntlCarrier, CarrierResult> = {
@@ -55,7 +51,7 @@ export default function IntlShippingPage() {
   const [cart, setCart] = useState<IntlCartItem[]>([]);
   const [modalStep, setModalStep] = useState<ModalStep>(null);
   const [previewCarrier, setPreviewCarrier] = useState<{
-    carrier: ShippableCarrier;
+    carrier: IntlCarrier;
     rate: ShippingRate;
     /** Our real cost for this rate — drives the modal's floor and recommendation. */
     costBasis: number;
@@ -145,9 +141,6 @@ export default function IntlShippingPage() {
 
   function handleSelectRate(carrier: IntlCarrier, rate: ShippingRate) {
     if (!currentShipment) return;
-    // USPS is preview-only until its label/customs path is built — never cart it.
-    // The explicit check (not a Set) also narrows `carrier` to ShippableCarrier.
-    if (carrier !== 'fedex' && carrier !== 'ups') return;
     // Aged-out quote — force a re-compare instead of carting a stale price.
     if (isQuoteStale(quotedAt, Date.now())) {
       setResults(INITIAL_RESULTS);
@@ -239,7 +232,7 @@ export default function IntlShippingPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy">International Shipping</h1>
           <p className="mt-1 text-sm text-navy/50">
-            FedEx &amp; UPS cross-border shipping with commercial-invoice generation (USPS rates in preview). Domestic shipping is unaffected.
+            FedEx, UPS &amp; USPS cross-border shipping with commercial-invoice &amp; customs-form generation. Domestic shipping is unaffected.
           </p>
         </div>
         <span className="mt-1 shrink-0 rounded-full border border-navy/15 bg-cream px-4 py-1.5 text-xs font-semibold text-navy/50">
@@ -256,7 +249,7 @@ export default function IntlShippingPage() {
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <FedExPanel result={results.fedex} onSelectRate={(r) => handleSelectRate('fedex', r)} selectedRateCode={null} />
         <UPSPanel result={results.ups} onSelectRate={(r) => handleSelectRate('ups', r)} selectedRateCode={null} />
-        <USPSPanel result={results.usps} onSelectRate={(r) => handleSelectRate('usps', r)} selectedRateCode={null} previewOnly />
+        <USPSPanel result={results.usps} onSelectRate={(r) => handleSelectRate('usps', r)} selectedRateCode={null} />
       </div>
 
       {/* Cart */}

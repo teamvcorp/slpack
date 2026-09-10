@@ -17,7 +17,9 @@ import { EEI_FILING_THRESHOLD_USD } from '../../types/shippingIntl';
  */
 
 interface Props {
-  carrier: 'fedex' | 'ups';
+  // USPS uses manual duty entry like UPS; the FedEx-only EDT estimate is gated
+  // to carrier === 'fedex', so it stays hidden for both.
+  carrier: 'fedex' | 'ups' | 'usps';
   carrierColor: string;
   carrierLabel: string;
   /** Base shipment (no customs yet) — used for the FedEx duty estimate. */

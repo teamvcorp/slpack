@@ -152,3 +152,53 @@ export function upsInternationalForms(
     })),
   };
 }
+
+// ── USPS mappings ──────────────────────────────────────────────────────────
+// USPS customsForm.customsContentType enum (International Labels v3).
+const USPS_CONTENT_TYPE: Record<ReasonForExport, string> = {
+  SALE: 'MERCHANDISE',
+  GIFT: 'GIFT',
+  SAMPLE: 'SAMPLE',
+  RETURN: 'RETURNED_GOODS',
+  REPAIR: 'OTHER',
+  PERSONAL: 'OTHER',
+};
+
+/**
+ * Build the USPS `customsForm` block for the International Labels API
+ * (POST /international-labels/v3/international-label). Unlike FedEx/UPS — which
+ * produce a separate commercial invoice document — USPS integrates the customs
+ * declaration (CN22/CN23) INTO the label, so this rides on the label request.
+ *
+ * Maps our neutral CustomsInfo/Commodity to USPS's contents items. HS code is
+ * digits-only and omitted when unknown (USPS rejects an empty tariff string, as
+ * FedEx does with harmonizedCode). Per-item value is the line total
+ * (unitValue × quantity), consistent with the FedEx/UPS mappings above.
+ */
+export function uspsInternationalCustoms(customs: CustomsInfo) {
+  return {
+    customsContentType: USPS_CONTENT_TYPE[customs.reasonForExport] ?? 'MERCHANDISE',
+    // AES/EEI filing. Retail shipments under $2,500 per Schedule B use the
+    // standard exemption legend; shipments at/over the threshold legally require
+    // a real AES ITN and are blocked upstream (see the label route's guard and
+    // EEI_FILING_THRESHOLD_USD). Confirmed required by USPS sandbox validation.
+    AESITN: 'NOEEI 30.37(a)',
+    ...(customs.contentsDescription
+      ? { contentComments: String(customs.contentsDescription).slice(0, 100) }
+      : {}),
+    // Field names verified against the USPS International Labels v3 schema:
+    // itemTotalValue (line total), itemTotalWeight (not `weight`), countryofOrigin.
+    contents: customs.commodities.map((c) => {
+      const hs = String(c.hsCode || '').replace(/\D/g, '');
+      return {
+        itemDescription: (c.description || 'Merchandise').slice(0, 100),
+        itemQuantity: Number(c.quantity || 1),
+        itemTotalValue: lineTotal(c),
+        itemTotalWeight: Number(c.weightLbs || 0.1),
+        weightUOM: 'lb',
+        ...(hs ? { HSTariffNumber: hs } : {}),
+        countryofOrigin: String(c.countryOfManufacture || 'US'),
+      };
+    }),
+  };
+}

@@ -54,10 +54,49 @@ USPS/api-examples GitHub (issue #18 has a concrete intl-prices request).
   OTHER). This maps directly to the commodity/HS data the app ALREADY collects
   for UPS/FedEx intl (see `lib/shippingIntl.ts` + `intl/hs-search`).
 - Response: label image (base64) + tracking barcode; may be multipart.
-- ⚠️ The exact JSON field names for the customs block are NOT fully pinned from
-  public docs — the dev-portal pages are JS SPAs and the public Postman
-  collection has domestic only. **Confirm from the International Labels 3.0
-  OpenAPI spec (USPS account) or by probing sandbox before wiring the label path.**
+- **CONFIRMED against USPS sandbox (apis-tem.usps.com) 2026-09-10** — a real
+  201 label minted. Verified request shape:
+  ```jsonc
+  {
+    "imageInfo": { "imageType": "PDF", "labelType": "4X6LABEL" },
+    "toAddress": {
+      "firstName", "lastName", "firm?", "streetAddress", "secondaryAddress?",
+      "city", "province?", "postalCode?",
+      "country": "Mexico",            // full name — REQUIRED
+      "countryISOAlpha2Code": "MX",   // ISO-2 — ALSO REQUIRED (both needed)
+      "phone?"
+    },
+    "fromAddress": { "firstName","lastName","streetAddress","city","state","ZIPCode","phone?" },
+    "packageDescription": {
+      "weight","weightUOM":"lb","length","width","height","dimensionsUOM":"in",
+      "mailClass","rateIndicator":"SP","processingCategory":"MACHINABLE",
+      "destinationEntryFacilityType":"NONE","priceType":"COMMERCIAL","mailingDate"
+    },
+    "customsForm": {
+      "customsContentType": "MERCHANDISE",   // MERCHANDISE|GIFT|SAMPLE|DOCUMENTS|RETURNED_GOODS|OTHER
+      "AESITN": "NOEEI 30.37(a)",            // REQUIRED. Exemption legend < $2,500; real ITN at/over
+      "contentComments?",
+      "contents": [{
+        "itemDescription", "itemQuantity",
+        "itemTotalValue",        // line total (unit × qty)
+        "itemTotalWeight",       // NOT `weight`
+        "weightUOM": "lb",
+        "HSTariffNumber?",       // digits only; omit if unknown
+        "countryofOrigin"        // note lowercase 'of'
+      }]
+    }
+  }
+  ```
+- **RESPONSE is `multipart/form-data`, NOT JSON:** a `labelMetadata` JSON part
+  (`internationalTrackingNumber`, `postage`, `SKU`, weight) + a `labelImage` part
+  carrying the label PDF as **base64** (USPS integrates the CN22/CN23 customs form
+  INTO the label — no separate invoice doc). The label route parses the multipart
+  and reads `internationalTrackingNumber` + `postage`.
+- **Auth:** sandbox accepts the PRODUCTION USPS creds (CRID/MID/EPS) — payment-
+  authorization 200 on apis-tem.usps.com. (Prod payment-auth returned a transient
+  401 "trouble validating your credit card" during probing — unrelated to schema.)
+- **$2,500 AES guard:** the label route blocks (422) at/over `EEI_FILING_THRESHOLD_USD`
+  because the exemption legend is only valid below it and the counter can't file AES.
 
 ## 3. Gotchas / decisions
 
