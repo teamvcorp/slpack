@@ -213,8 +213,15 @@ UTC hour. This is the FedEx Saturday bug (see `saturday_delivery_notes.md`)
 reproduced on UPS. The fix is mechanical but it changes carrier quoting, so it
 needs its own commit and its own sandbox before/after.
 
-## Also noted
+## Removed: `/api/register/sales`
 
-`app/api/register/sales/route.ts` is dead — nothing references it, and it has no
-concept of voided shipments, so its numbers disagree with `/api/reports/sales`.
-Left in place (only its import was updated); delete it when convenient.
+Deleted 2026-09-10. It was a register-only sales feed superseded by
+`/api/reports/sales`, and nothing referenced it — verified with ripgrep across
+the whole tree; the only surviving hit was this document. Do not confuse it with
+`/api/register/sale` (singular), which is the live WRITE route that records a
+till sale and is called from `RegisterCheckout.tsx` and `CombinedCheckout.tsx`.
+
+It was worth removing rather than leaving: it had no concept of a voided
+shipment, so anyone who found it would have gotten revenue numbers that quietly
+disagreed with the Sales tab. Recoverable from history at d604af7 if ever
+needed.
