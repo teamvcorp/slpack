@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import client from '@/lib/mongodb';
+import { isOurTerminalIntent } from '@/lib/terminalIntents';
 
 /**
  * Poll the state of an in-person reader payment. The client calls this every
@@ -22,6 +23,11 @@ export async function POST(req: NextRequest) {
   const paymentIntentId = String(body?.paymentIntentId ?? '').trim();
   if (!paymentIntentId) {
     return NextResponse.json({ error: 'Missing paymentIntentId' }, { status: 400 });
+  }
+  // Only report on a PI this site issued — the reader's Stripe account is shared
+  // across sites, so an arbitrary PI id must not be a cross-site status oracle.
+  if (!(await isOurTerminalIntent(paymentIntentId))) {
+    return NextResponse.json({ error: 'Unknown payment' }, { status: 404 });
   }
 
   await client.connect();

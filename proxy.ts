@@ -28,6 +28,7 @@ const PUBLIC_PATHS = new Set<string>([
   '/api/print-order',
   '/api/print-order/upload',
   '/api/identity/webhook',
+  '/api/webhooks/stripe',
 ]);
 
 export async function proxy(req: NextRequest) {

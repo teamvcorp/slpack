@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import client from '@/lib/mongodb';
+import { isOurTerminalIntent } from '@/lib/terminalIntents';
 
 /**
  * Cancel an in-progress reader payment: clear the reader's current action so it
@@ -36,7 +37,10 @@ export async function POST(req: NextRequest) {
       /* reader may already be idle */
     }
   }
-  if (paymentIntentId) {
+  // Only cancel a PI this site issued — never another site's sale on the shared
+  // account. The reader action above is cleared via our own readerId, so it is
+  // already site-local.
+  if (paymentIntentId && (await isOurTerminalIntent(paymentIntentId))) {
     try {
       await stripe.paymentIntents.cancel(paymentIntentId);
     } catch {

@@ -2,18 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeEmail } from '@/lib/email';
 import { priceCart } from '@/lib/registerPricing';
 import client from '@/lib/mongodb';
-import { SITE_URL } from '@/lib/siteConfig';
+import { SITE_TAG, recordTerminalIntent } from '@/lib/terminalIntents';
 import type { RegisterLineItem } from '@/app/admin/types/register';
-
-// The S710 is shared across sites on one Stripe account — tag every charge so
-// shared transactions stay attributable to THIS site in the Stripe Dashboard.
-const SITE_TAG = (() => {
-  try {
-    return new URL(SITE_URL).hostname.replace(/^www\./, '');
-  } catch {
-    return 'slpack';
-  }
-})();
 
 /**
  * Start an in-person card payment on the Stripe Terminal reader (server-driven).
@@ -103,6 +93,9 @@ export async function POST(req: NextRequest) {
       metadata: { source: 'terminal', site: SITE_TAG, totalUSD: amountUSD.toFixed(2) },
     });
     paymentIntentId = pi.id;
+    // Claim this PI for our site so status/cancel will act on it (and refuse
+    // another site's PI on the shared account).
+    await recordTerminalIntent(pi.id);
 
     await stripe.terminal.readers.processPaymentIntent(readerId, { payment_intent: pi.id });
 

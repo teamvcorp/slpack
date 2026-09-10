@@ -29,6 +29,29 @@ const SECURITY_HEADERS = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
   },
+  // CSP in REPORT-ONLY mode (2026-09-10): it never blocks — it only reports
+  // violations to the browser console — so it is safe to ship and observe. The
+  // policy below is close to what we'd enforce; it still carries 'unsafe-inline'
+  // (Next hydration + the JSON-LD block) and 'unsafe-eval' (the vendored Epson
+  // ePOS SDK). Tightening those (a nonce for inline; scoping 'unsafe-eval' to
+  // /admin) and switching to the enforcing Content-Security-Policy header is a
+  // deliberate follow-up — do it after watching the report-only console for a
+  // real counter session.
+  {
+    key: "Content-Security-Policy-Report-Only",
+    value: [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' https://fonts.gstatic.com",
+      "connect-src 'self' https://api.stripe.com https://*.blob.vercel-storage.com",
+      "frame-src https://js.stripe.com https://hooks.stripe.com https://www.google.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+    ].join("; "),
+  },
 ];
 
 const nextConfig: NextConfig = {

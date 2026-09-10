@@ -8,6 +8,7 @@ import { INTERNAL_HEADER, internalApiToken } from '@/lib/internalAuth';
 import { upsertContacts } from '@/lib/contacts';
 import { buildShipmentReceiptHtml } from '@/lib/receipt';
 import { priceInsurance } from '@/lib/shippingPricing';
+import { sendMoneyAlert } from '@/lib/alerts';
 import { normalizeSignature } from '@/lib/signatureOption';
 import { normalizeSimpleRateTier } from '@/lib/upsSimpleRate';
 import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
@@ -96,6 +97,13 @@ export async function POST(req: NextRequest) {
           shortfallUSD: Math.round((expectedTotalUSD - collectedTotalUSD) * 100) / 100,
         },
       });
+      await sendMoneyAlert('Insurance underpriced at the counter', [
+        `Service: ${carrier} ${serviceName}`,
+        `Collected insurance: $${collectedInsuranceUSD.toFixed(2)}`,
+        `Should have been:    $${insuranceChargeUSD.toFixed(2)}`,
+        `Declared value: $${pricedInsurance.valueUSD.toFixed(2)}`,
+        'Likely a browser tab left open across a deploy. Check Reports → Errors.',
+      ]);
     }
 
     // ── 1. Generate label via carrier API ───────────────────────────────────
@@ -223,6 +231,15 @@ export async function POST(req: NextRequest) {
           priceOverridden: priceOverridden === true,
         },
       });
+      await sendMoneyAlert('Shipment sold BELOW CARRIER COST', [
+        `Service: ${carrier} ${serviceName}`,
+        `Collected freight: $${collectedFreightUSD.toFixed(2)}`,
+        `Carrier charge:    $${carrierCostUSD.toFixed(2)}`,
+        `Loss: $${(carrierCostUSD - collectedFreightUSD).toFixed(2)}`,
+        priceOverridden === true
+          ? 'Price was set manually at the counter.'
+          : 'Price came from the pricing formula — check the rate quote.',
+      ]);
     }
 
     // ── 2. Append to shipment log ────────────────────────────────────────────
