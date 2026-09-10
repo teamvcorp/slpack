@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sessionMode, verifySession, signSession, SESSION_TTL_SECONDS } from '@/lib/session';
 
-/** SHA-256 hex of the passcode — the same value stored in the admin_session cookie. */
+/** SHA-256 hex of the passcode — the legacy admin_session cookie value. */
 async function expectedToken(passcode: string): Promise<string> {
   const encoded = new TextEncoder().encode(passcode);
   const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
@@ -61,24 +62,38 @@ export async function proxy(req: NextRequest) {
 
   const expected = await expectedToken(passcode);
 
-  // Browser requests carry the session cookie; trusted server-to-server calls
-  // (e.g. the shipping/submit route invoking the label + address-book routes)
-  // present the same token in a header so they don't get locked out.
   const cookie = req.cookies.get('admin_session')?.value;
   const internalHeader = req.headers.get('x-admin-internal');
-  const authorized = cookie === expected || internalHeader === expected;
+
+  // A valid signed session token (session mode) is the preferred credential.
+  // The legacy sha256(passcode) cookie is still accepted so live sessions
+  // survive the cutover to session mode. Trusted server-to-server calls (e.g.
+  // shipping/submit invoking the label route) present that same static value in
+  // a header — unchanged, and unaffected by session mode.
+  const sessionOk = await verifySession(cookie);
+  const legacyCookieOk = cookie === expected;
+  const authorized = sessionOk || legacyCookieOk || internalHeader === expected;
 
   if (authorized) {
     const res = NextResponse.next();
-    // Sliding expiration: refresh the session cookie on each authorized,
-    // cookie-based request so an actively-used counter session doesn't expire
-    // mid-shift (only true inactivity for the full window logs you out).
-    if (cookie === expected) {
+    // Sliding expiration: reissue the cookie on each authorized, cookie-based
+    // request so an actively-used counter session doesn't expire mid-shift.
+    if (sessionOk) {
+      res.cookies.set('admin_session', await signSession(SESSION_TTL_SECONDS), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: SESSION_TTL_SECONDS,
+        path: '/',
+      });
+    } else if (legacyCookieOk && !sessionMode()) {
+      // Only slide the legacy cookie while still in legacy mode; once session
+      // mode is on, let legacy cookies age out rather than renewing them.
       res.cookies.set('admin_session', expected, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
-        maxAge: 60 * 60 * 8, // 8 hours from now
+        maxAge: SESSION_TTL_SECONDS,
         path: '/',
       });
     }
