@@ -69,19 +69,30 @@ against source; fixes verified against local dev. No production probing.
   409; no PI → 402; mismatched PI → 402; valid PI → passes; **flag OFF →
   unchanged** (card, cash, and the Terminal reader all behave as today).
 
-**Remaining before the flag can be turned on (do NOT enable until then — with it
-on and no quoteIds, submit 409s every shipment):**
-1. Rate routes create a quote per offered rate and return its `quoteId`
-   (server-compute cost basis + retail; the authority is `lib/shippingPricing.ts`
-   + `lib/carrierIncentive.ts`).
-2. Checkout components thread `quoteId` (per package) into create-payment-intent
-   (as `quoteIds` + `extrasUSD`) and into submit (`quoteId` + `paymentIntentId`).
-   The **Terminal reader flow is out of scope** — it stays on its own route.
-3. A real browser checkout in Stripe **test mode** end-to-end, then flip the flag
-   in preview before production. Needs `STRIPE_WEBHOOK_SECRET` for the webhook.
+**Wiring — DONE for the standalone domestic UPS/FedEx shipping flow** (commit
+07bc677), verified end-to-end against Stripe test mode:
+- Rate routes store a quote per rate (`lib/quoteForRates.ts`, same price formula
+  as the counter) and return `quoteId`; inert when the flag is off.
+- StripeCheckout threads `quoteId`/`quoteIds`/`extrasUSD`/`paymentIntentId`
+  (additive — server ignores them when the flag is off).
+- submit binds standalone shipping; a reader PI (`metadata.source=terminal`) is
+  accepted without the quote-name check, so **tap-and-pay is unaffected**;
+  combined register+shipping (has a `transactionId`) stays on its legacy path.
 
-Interim protection stays in force: the $2000 ceiling on both billing routes plus
-the below-cost backstop + money alerts in submit.
+**To turn it on (only when ready, and test first):**
+1. Do a real browser checkout in Stripe **test mode** end-to-end (rate → card →
+   label), for a normal card, a saved card, and the reader.
+2. Decide the OVERRIDE question: under binding the server quote price wins, so a
+   staff freight override is ignored. If overrides must keep working, tell me and
+   I'll carry the override into the quote before you enable.
+3. Set `PAYMENT_BINDING_ENABLED=true` — ideally in **preview** first, then prod.
+4. (Optional but recommended) set `STRIPE_WEBHOOK_SECRET` + the Stripe endpoint.
+
+**Not yet bound (left on their existing path so they don't break under the flag —
+follow-up):** combined register+shipping, and international.
+
+Interim protection stays in force regardless: the $2000 ceiling on both billing
+routes plus the below-cost backstop + money alerts in submit.
 
 ## Not done, lower priority
 - H4 void actor/refund reconciliation (do with sessions — record `voidedBy`).
