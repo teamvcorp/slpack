@@ -112,6 +112,12 @@ export async function POST(req: NextRequest) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: 'usd',
+      // Card-only (2026-09-10). Without this Stripe defaults to every
+      // dashboard-enabled method, some of which redirect the customer and then
+      // REQUIRE a return_url on confirm — which the on-screen CardElement flow
+      // doesn't supply, so Stripe flagged the integration. The counter only
+      // takes cards here, so pin it to card and the redirect requirement is gone.
+      payment_method_types: ['card'],
       receipt_email: receiptEmail,
       description: `Shipping: ${String(carrier).toUpperCase()} — ${serviceName}`,
       // Attach the card up front so funding could be read and the fee priced;

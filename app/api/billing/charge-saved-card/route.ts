@@ -63,6 +63,9 @@ export async function POST(req: NextRequest) {
       const pi = await stripe.paymentIntents.create({
         amount: Math.round(totalUSD * 100),
         currency: 'usd',
+        // Card-only — see create-payment-intent (avoids the redirect-method
+        // return_url requirement Stripe flagged). (2026-09-10)
+        payment_method_types: ['card'],
         customer: customer.id,
         payment_method: paymentMethodId,
         off_session: true,
