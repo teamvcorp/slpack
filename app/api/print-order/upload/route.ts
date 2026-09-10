@@ -1,5 +1,6 @@
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { hit, clientIp } from '@/lib/rateLimit';
 
 /**
  * Client-upload token endpoint for the public /printing page. The browser
@@ -18,17 +19,39 @@ const ALLOWED_CONTENT_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
 ];
 
-// Generous abuse guard, not a real limit for documents (~1 GB).
-const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+// Document-shaped ceiling. This is a PUBLIC endpoint that mints Blob write
+// tokens, so an over-generous cap is a storage/bandwidth-billing abuse vector —
+// 50 MB comfortably covers a scanned document without handing out a 1 GB write.
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
-export async function POST(request: Request): Promise<NextResponse> {
+// Public token-minting must be rate limited (fix 2026-09-10). Without this an
+// anonymous caller could mint unlimited upload tokens against the shop's Blob
+// store. Matches the sibling /api/print-order limiter.
+const UPLOAD_LIMIT = 12;
+const WINDOW_MS = 10 * 60 * 1000;
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
       { error: 'Blob storage is not configured (BLOB_READ_WRITE_TOKEN missing). Connect a Vercel Blob store and redeploy.' },
       { status: 503 }
     );
   }
-  const body = (await request.json()) as HandleUploadBody;
+
+  const count = await hit(`printupload:${clientIp(request)}`, WINDOW_MS);
+  if (count > UPLOAD_LIMIT) {
+    return NextResponse.json(
+      { error: 'Too many upload requests. Please wait a few minutes and try again.' },
+      { status: 429 }
+    );
+  }
+
+  let body: HandleUploadBody;
+  try {
+    body = (await request.json()) as HandleUploadBody;
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  }
   try {
     const jsonResponse = await handleUpload({
       body,

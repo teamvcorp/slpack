@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { sanitizeEmail } from '@/lib/email';
 import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
+import { appendError } from '@/lib/errorLog';
+
+/**
+ * STOPGAP ceiling (2026-09-10), removed once server-side quote binding lands.
+ * This route charges a card ON FILE off-session for a client-supplied amount, so
+ * an unconstrained amount is the higher-risk of the two billing routes. Cap it
+ * until the charge is recomputed from a stored quote. See create-payment-intent.
+ */
+const MAX_CHARGE_USD = 2000;
 
 // POST /api/billing/charge-saved-card — charge a card already on file for the
 // sender (off-session, confirmed immediately — no Stripe Elements needed).
@@ -17,6 +27,17 @@ export async function POST(req: NextRequest) {
     if (!paymentMethodId) return NextResponse.json({ ok: false, error: 'No saved card selected' }, { status: 400 });
     if (!amountUSD || Number(amountUSD) <= 0) {
       return NextResponse.json({ ok: false, error: 'Invalid amount' }, { status: 400 });
+    }
+    if (Number(amountUSD) > MAX_CHARGE_USD) {
+      await appendError({
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        route: 'billing/charge-saved-card',
+        status: 400,
+        message: `Off-session charge $${Number(amountUSD).toFixed(2)} exceeds the $${MAX_CHARGE_USD} ceiling — refused. Client-supplied amount on a saved card; check for tampering or raise the cap.`,
+        requestSummary: { amountUSD: Number(amountUSD), carrier, serviceName },
+      });
+      return NextResponse.json({ ok: false, error: 'Amount exceeds the allowed maximum.' }, { status: 400 });
     }
 
     const Stripe = (await import('stripe')).default;

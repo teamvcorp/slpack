@@ -9,22 +9,33 @@ async function expectedToken(passcode: string): Promise<string> {
     .join('');
 }
 
+/**
+ * Public paths reachable without a session — the login page, the auth endpoint,
+ * and the public forms.
+ *
+ * EXACT match, deliberately (bug fix 2026-09-10). This was a chain of
+ * `pathname.startsWith(...)`, and `'/api/contacts/senders'.startsWith('/api/contact')`
+ * is TRUE — so the entire customer address book, including stored ID-verification
+ * data, was anonymously readable. A prefix is never the right test for an
+ * allowlist: list the exact paths, and add each new one on purpose.
+ */
+const PUBLIC_PATHS = new Set<string>([
+  '/admin/login',
+  '/api/admin/auth',
+  '/api/contact',
+  '/api/website-quote',
+  '/api/print-order',
+  '/api/print-order/upload',
+  '/api/identity/webhook',
+]);
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isApi = pathname.startsWith('/api');
   const isAdminPage = pathname.startsWith('/admin');
 
-  // Public endpoints: the login page, the auth endpoint, and the public forms
-  // (contact, website quote, print orders) must stay reachable without a session.
-  if (
-    pathname.startsWith('/admin/login') ||
-    pathname.startsWith('/api/admin/auth') ||
-    pathname.startsWith('/api/contact') ||
-    pathname.startsWith('/api/website-quote') ||
-    pathname.startsWith('/api/print-order') ||
-    pathname.startsWith('/api/identity/webhook')
-  ) {
+  if (PUBLIC_PATHS.has(pathname)) {
     return NextResponse.next();
   }
 
@@ -35,7 +46,16 @@ export async function proxy(req: NextRequest) {
 
   const passcode = process.env.ADMIN_PASSCODE ?? '';
   if (!passcode) {
-    // No passcode configured — allow access (local dev).
+    // Fail CLOSED where it matters (fix 2026-09-10). This used to open the whole
+    // app whenever ADMIN_PASSCODE was empty — meant as a local-dev convenience,
+    // but a missing/typo'd var in a deployed environment would expose every
+    // route (void, charge-saved-card, all reports) to the anonymous internet.
+    // The open-access convenience is now confined to local, non-preview dev.
+    const deployed =
+      process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'preview';
+    if (deployed) {
+      return new NextResponse('Server misconfigured', { status: 500 });
+    }
     return NextResponse.next();
   }
 

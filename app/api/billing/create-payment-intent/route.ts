@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { sanitizeEmail } from '@/lib/email';
 import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
+import { appendError } from '@/lib/errorLog';
+
+/**
+ * STOPGAP ceiling (2026-09-10), removed once server-side quote binding lands.
+ * The charge amount is currently client-supplied; until it is recomputed from a
+ * stored quote, cap it so a tampered request cannot charge an absurd amount. A
+ * real shipping label + insurance stays well under this; legitimate overages
+ * show up in the error log and the cap can be raised.
+ */
+const MAX_CHARGE_USD = 2000;
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,6 +27,17 @@ export async function POST(req: NextRequest) {
 
     if (!amountUSD || Number(amountUSD) <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
+    }
+    if (Number(amountUSD) > MAX_CHARGE_USD) {
+      await appendError({
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        route: 'billing/create-payment-intent',
+        status: 400,
+        message: `Charge amount $${Number(amountUSD).toFixed(2)} exceeds the $${MAX_CHARGE_USD} ceiling — refused. Client-supplied amount; check for tampering or raise the cap.`,
+        requestSummary: { amountUSD: Number(amountUSD), carrier, serviceName },
+      });
+      return NextResponse.json({ error: 'Amount exceeds the allowed maximum.' }, { status: 400 });
     }
 
     // Stripe rejects malformed receipt_email values with a cryptic
