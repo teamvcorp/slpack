@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { logAndRespond } from '@/lib/apiErrors';
+import { appendError } from '@/lib/errorLog';
 import { getFedexToken } from '@/lib/carrierTokens';
 import { normalizePostal } from '@/lib/postal';
 
@@ -8,6 +10,19 @@ const ROUTE = 'shipping/fedex/validate';
 const BASE = process.env.FEDEX_SANDBOX === 'false'
   ? 'https://apis.fedex.com'
   : 'https://apis-sandbox.fedex.com';
+
+/**
+ * FedEx caps stateOrProvinceCode at 2 characters (US/CA/MX/PR state codes), and
+ * rejects anything longer with STATEORPROVINCECODE.TOO.LONG (400) — e.g. a
+ * customer typing "Quintana Roo" instead of "QR". The field is optional for
+ * address resolution (postal + country + city carry it), so send it only when it
+ * is a plausible 2-letter code and omit it otherwise rather than failing the
+ * whole validation. (fix 2026-09-10)
+ */
+function fedexStateCode(state: unknown): string | undefined {
+  const s = String(state ?? '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(s) ? s : undefined;
+}
 
 export interface AddressValidationResult {
   valid: boolean;
@@ -75,7 +90,7 @@ export async function POST(req: NextRequest) {
           address: {
             streetLines: streetLine ? [String(streetLine)] : [],
             city: city ? String(city) : undefined,
-            stateOrProvinceCode: state ? String(state) : undefined,
+            stateOrProvinceCode: fedexStateCode(state),
             postalCode: normalizePostal(zip, country),
             countryCode: String(country || 'US'),
           },
@@ -96,6 +111,35 @@ export async function POST(req: NextRequest) {
 
     if (!validateRes.ok) {
       const body = await validateRes.text();
+      // A 4xx here is bad ADDRESS INPUT (e.g. an unsupported/too-long state code
+      // on an international address), not an outage. Don't hard-fail the counter
+      // over it — record it for visibility and return a soft "unvalidated"
+      // result so staff can verify and still ship. A 5xx (FedEx down) stays a
+      // real, retryable error. (fix 2026-09-10)
+      if (validateRes.status >= 400 && validateRes.status < 500) {
+        try {
+          await appendError({
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            route: ROUTE,
+            carrier: 'fedex',
+            status: validateRes.status,
+            message: `FedEx address validation could not process the address (${validateRes.status})`,
+            upstreamStatus: validateRes.status,
+            upstreamBody: body,
+            requestSummary,
+          });
+        } catch {
+          /* logging must never block the counter */
+        }
+        const soft: AddressValidationResult = {
+          valid: false,
+          status: 'UNRESOLVED',
+          suggested: null,
+          messages: ['Address could not be validated automatically — verify it before shipping.'],
+        };
+        return NextResponse.json(soft);
+      }
       return await logAndRespond({
         route: ROUTE,
         carrier: 'fedex',
