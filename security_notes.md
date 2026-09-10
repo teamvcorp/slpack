@@ -21,12 +21,13 @@ against source; fixes verified against local dev. No production probing.
 | M5 | Med | Uncoerced `weightLbs` → stored XSS in admin print iframe | **FIXED** — coerced + esc'd |
 | M6 | Med | Raw `err.message` to anonymous clients (3 public routes) | **FIXED** — generic message, detail server-side |
 | M9 | Med | USPS EPS account number in runtime logs | **FIXED** — log line removed |
-| H6 | High | No `payment_intent.succeeded` webhook (no proof of payment) | **OUTSTANDING** — part of payment binding |
+| H6 | High | No `payment_intent.succeeded` webhook (no proof of payment) | **FOUNDATION DONE** — webhook `/api/webhooks/stripe` records events; binding that reads it is deferred |
 | H2 | High | `charge-saved-card`/`saved-cards` arbitrary email → card oracle + charge | **PARTIAL** — $2000 cap; full fix is part of payment binding |
 | H3 | High | `register/checkout` trusts `shippingUSD`/`taxRate` | **OUTSTANDING** — part of payment binding |
 | H4 | High | Void needs only shared passcode; no actor/refund | **OUTSTANDING** — best done with sessions (voidedBy) |
-| M7 | Med | Terminal cancel/status accept any PI on shared account | **OUTSTANDING** |
-| M8 | Med | Below-cost / underpriced detections log silently | **OUTSTANDING** (alerting) |
+| M7 | Med | Terminal cancel/status accept any PI on shared account | **FIXED** — lib/terminalIntents ownership guard; verified |
+| M8 | Med | Below-cost / underpriced detections log silently | **FIXED** — lib/alerts emails on both; needs RESEND_API_KEY |
+| CSP | — | No Content-Security-Policy | **REPORT-ONLY SHIPPED** — enforcement (nonce + /admin unsafe-eval) deferred |
 | P3 | Low | carrier path whitelist, send-link host, esc gaps, q cap, tracked PII file | **FIXED** |
 | P3 | Low | stripe SDK two majors behind | **OUTSTANDING** (needs coordinated test) |
 
@@ -38,11 +39,19 @@ against source; fixes verified against local dev. No production probing.
   passcode is rotated; do it off-shift.
 - **Blob host pin (M4):** set `BLOB_PUBLIC_HOSTNAME` to this store's blob host
   (read it off any uploaded file URL, e.g. `abc123.public.blob.vercel-storage.com`).
-- **Payment binding (below):** will need `STRIPE_WEBHOOK_SECRET`.
+- **Payment webhook (H6):** add a Stripe Dashboard endpoint at
+  `https://<domain>/api/webhooks/stripe` for `payment_intent.succeeded`
+  (and `.payment_failed` / `.canceled`), then set `STRIPE_WEBHOOK_SECRET` to its
+  signing secret. Distinct from `STRIPE_IDENTITY_WEBHOOK_SECRET`. Until set, the
+  endpoint returns 400 to everything (fails closed) and records nothing.
+- **Money alerts (M8):** optional `ALERT_EMAIL` (defaults to the shop address);
+  needs `RESEND_API_KEY` (already set) to actually send.
 
 ## Indexes created on Atlas (2026-09-10)
 - `rateLimits`: unique `key`, TTL `expiresAt`
 - `authEvents`: TTL `at` (90 days)
+- `terminalIntents`: TTL `at` (1 day)
+- `paymentEvents`: unique `eventId`
 
 ## OUTSTANDING: payment binding (C2/H2/H3/H6) — the remaining structural fix
 
