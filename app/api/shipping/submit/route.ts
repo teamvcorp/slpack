@@ -76,8 +76,12 @@ export async function POST(req: NextRequest) {
     // gap is visible and chaseable without corrupting the books.
     const num = (v: unknown, fallback: number) =>
       Number.isFinite(Number(v)) ? Number(v) : fallback;
-    const collectedInsuranceUSD = num(insuranceUSD, insuranceChargeUSD);
-    const collectedTotalUSD = num(totalUSD, expectedTotalUSD);
+    const collectedInsuranceUSD = num(insuranceUSD, num(insuranceChargeUSD, 0));
+    // totalUSD is the revenue figure the reports SUM, so it must never be NaN —
+    // a single non-finite value poisons the whole report total. Chain the
+    // fallbacks so the result is always finite (client total → server expected →
+    // freight), never NaN. (fix 2026-09-10)
+    const collectedTotalUSD = num(totalUSD, num(expectedTotalUSD, Number(shippingUSD) || 0));
 
     if (Math.abs(collectedInsuranceUSD - insuranceChargeUSD) > 0.01) {
       await appendError({
@@ -358,6 +362,11 @@ export async function POST(req: NextRequest) {
       customerName: shipment.customerName ?? '',
       customerPhone: shipment.customerPhone ?? '',
       customerEmail: shipment.customerEmail ?? '',
+      // Persist the sender too, so a reprint/resend can reach the paying customer
+      // and the record is complete. (2026-09-10)
+      senderName: shipment.senderName || undefined,
+      senderPhone: shipment.senderPhone || undefined,
+      senderEmail: shipment.senderEmail || undefined,
       destAttention: shipment.destAttention?.trim() || undefined,
       insuranceDescription: pricedInsurance.description,
       paymentMethod: (paymentMethod === 'cash' ? 'cash' : 'card') as 'card' | 'cash',
@@ -400,7 +409,11 @@ export async function POST(req: NextRequest) {
     // ── 4. Send receipt email via Resend ─────────────────────────────────────
     // Combined register+shipping sales email one unified receipt from the
     // checkout flow, so the per-package email is suppressed here.
-    const recipientEmail = sanitizeEmail(shipment.customerEmail);
+    // Send the tracking receipt to the SENDER (the paying customer) when we have
+    // their address, otherwise the recipient. Previously it only went to the
+    // recipient's email, so a sender who wanted their own tracking copy never
+    // got one. (fix 2026-09-10)
+    const recipientEmail = sanitizeEmail(shipment.senderEmail) ?? sanitizeEmail(shipment.customerEmail);
     if (recipientEmail && suppressEmail !== true && process.env.RESEND_API_KEY) {
       try {
         const { Resend } = await import('resend');

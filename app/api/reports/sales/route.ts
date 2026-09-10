@@ -29,6 +29,12 @@ export async function GET(req: NextRequest) {
     readShipmentList({ sinceIso: since }),
   ]);
 
+  // Coerce every money value to a FINITE number. A single NaN/null in a stored
+  // row (e.g. a malformed shipment) otherwise poisons the report totals: NaN
+  // serialises to JSON null and the client's money(null) throws, blanking the
+  // whole page. (fix 2026-09-10)
+  const fin = (n: unknown): number => (Number.isFinite(Number(n)) ? Number(n) : 0);
+
   const registerEntries: UnifiedSale[] = sales.map((s) => ({
     id: s.id,
     source: 'register',
@@ -37,9 +43,9 @@ export async function GET(req: NextRequest) {
     paymentMethod: s.paymentMethod,
     customerName: '',
     customerEmail: s.customerEmail ?? '',
-    subtotalUSD: s.subtotalUSD,
-    taxUSD: s.taxUSD,
-    totalUSD: s.totalUSD,
+    subtotalUSD: fin(s.subtotalUSD),
+    taxUSD: fin(s.taxUSD),
+    totalUSD: fin(s.totalUSD),
     register: s,
   }));
 
@@ -54,9 +60,9 @@ export async function GET(req: NextRequest) {
       paymentMethod: e.paymentMethod === 'cash' ? 'cash' : 'card',
       customerName: e.customerName ?? '',
       customerEmail: e.customerEmail ?? '',
-      subtotalUSD: e.totalUSD,
+      subtotalUSD: fin(e.totalUSD),
       taxUSD: 0,
-      totalUSD: e.totalUSD,
+      totalUSD: fin(e.totalUSD),
       voided: Boolean(e.voided),
       shipment: e,
     };

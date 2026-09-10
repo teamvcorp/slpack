@@ -25,13 +25,20 @@ export async function GET(req: NextRequest) {
 
   const entries = await readShipmentList({ sinceIso: logPeriodStartIso(period) });
 
+  // Coerce every row's totalUSD to a FINITE number: a single NaN/null (from a
+  // malformed shipment) would otherwise make totalRevenue NaN -> JSON null ->
+  // the client's total.toFixed() crash, blanking the page. (fix 2026-09-10)
+  for (const e of entries) {
+    if (!Number.isFinite(Number(e.totalUSD))) e.totalUSD = 0;
+  }
+
   // Voided shipments were refunded and their labels cancelled — they stay in
   // the list (staff need to see them) but they are not revenue.
   const live = entries.filter((e) => !e.voided);
 
   return NextResponse.json({
     entries,
-    totalRevenue: live.reduce((sum, e) => sum + e.totalUSD, 0),
+    totalRevenue: live.reduce((sum, e) => sum + Number(e.totalUSD), 0),
     totalShipments: live.length,
     byCarrier: live.reduce<Record<string, number>>((acc, e) => {
       acc[e.carrier] = (acc[e.carrier] ?? 0) + 1;

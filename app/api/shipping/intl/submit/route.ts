@@ -153,6 +153,9 @@ export async function POST(req: NextRequest) {
       customerName: shipment.customerName ?? '',
       customerPhone: shipment.customerPhone ?? '',
       customerEmail: shipment.customerEmail ?? '',
+      senderName: shipment.senderName || undefined,
+      senderPhone: shipment.senderPhone || undefined,
+      senderEmail: shipment.senderEmail || undefined,
       destAttention: shipment.destAttention?.trim() || undefined,
       insuranceDescription: pricedInsurance.description,
       paymentMethod: (paymentMethod === 'cash' ? 'cash' : 'card') as 'card' | 'cash',
@@ -186,7 +189,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 4. Receipt email ─────────────────────────────────────────────────────
-    const recipientEmail = sanitizeEmail(shipment.customerEmail);
+    const recipientEmail = sanitizeEmail(shipment.senderEmail) ?? sanitizeEmail(shipment.customerEmail);
     if (recipientEmail && suppressEmail !== true && process.env.RESEND_API_KEY) {
       try {
         const { Resend } = await import('resend');
