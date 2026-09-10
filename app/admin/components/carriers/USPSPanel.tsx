@@ -7,9 +7,15 @@ interface Props {
   result: CarrierResult;
   onSelectRate: (rate: ShippingRate) => void;
   selectedRateCode: string | null;
+  /**
+   * Show rates but disable selection (used by the international page in Stage A,
+   * where USPS rating is live but the label/customs path isn't wired yet). The
+   * domestic page never passes this, so it is unaffected.
+   */
+  previewOnly?: boolean;
 }
 
-export default function USPSPanel({ result, onSelectRate, selectedRateCode }: Props) {
+export default function USPSPanel({ result, onSelectRate, selectedRateCode, previewOnly = false }: Props) {
   const { loading, error, rates, lastFetched } = result;
 
   return (
@@ -18,7 +24,7 @@ export default function USPSPanel({ result, onSelectRate, selectedRateCode }: Pr
       <div className="flex items-center justify-between bg-[#004B87] px-4 py-3">
         <span className="text-lg font-extrabold tracking-tight text-white">USPS</span>
         <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] text-white/80">
-          Business API · OAuth 2.0
+          {previewOnly ? 'Rate preview' : 'Business API · OAuth 2.0'}
         </span>
       </div>
 
@@ -56,11 +62,14 @@ export default function USPSPanel({ result, onSelectRate, selectedRateCode }: Pr
                 <li key={rate.serviceCode}>
                   <button
                     type="button"
-                    onClick={() => onSelectRate(rate)}
+                    onClick={previewOnly ? undefined : () => onSelectRate(rate)}
+                    disabled={previewOnly}
                     className={`w-full rounded-lg border px-3 py-2 text-left transition-all ${
-                      selectedRateCode === rate.serviceCode
-                        ? 'border-[#004B87] bg-[#004B87]/5 ring-1 ring-[#004B87]'
-                        : 'border-navy/10 hover:border-[#004B87]/30 hover:bg-[#004B87]/5'
+                      previewOnly
+                        ? 'cursor-default border-navy/10'
+                        : selectedRateCode === rate.serviceCode
+                          ? 'border-[#004B87] bg-[#004B87]/5 ring-1 ring-[#004B87]'
+                          : 'border-navy/10 hover:border-[#004B87]/30 hover:bg-[#004B87]/5'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -90,6 +99,12 @@ export default function USPSPanel({ result, onSelectRate, selectedRateCode }: Pr
                 </li>
               ))}
           </ul>
+        )}
+
+        {previewOnly && rates.length > 0 && (
+          <p className="mt-2 rounded-lg bg-[#004B87]/5 px-3 py-2 text-[11px] text-navy/50">
+            Rate preview — USPS international label &amp; customs form are coming soon. Use FedEx or UPS to ship for now.
+          </p>
         )}
 
         {/* Troubleshooting accordion */}

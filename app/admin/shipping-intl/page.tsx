@@ -6,6 +6,7 @@ import CustomsFormModal from '../components/intl/CustomsFormModal';
 import IntlDocumentsModal from '../components/intl/IntlDocumentsModal';
 import FedExPanel from '../components/carriers/FedExPanel';
 import UPSPanel from '../components/carriers/UPSPanel';
+import USPSPanel from '../components/carriers/USPSPanel';
 import CarrierDetailModal from '../components/CarrierDetailModal';
 import StripeCheckout from '../components/StripeCheckout';
 import StaleSessionBanner from '../components/StaleSessionBanner';
@@ -29,17 +30,22 @@ import type {
 } from '../types/shipping';
 import type { IntlCartItem, IntlShipmentInput, CustomsInfo } from '../types/shippingIntl';
 
-// Only FedEx + UPS support the international flow here.
-type IntlCarrier = 'fedex' | 'ups';
+// FedEx + UPS are fully shippable internationally. USPS is Stage A: rates show
+// (preview) but selection is gated until the label/customs path is wired.
+type IntlCarrier = 'fedex' | 'ups' | 'usps';
+
+/** Carriers whose rates can be selected and shipped. USPS is preview-only for now. */
+type ShippableCarrier = 'fedex' | 'ups';
 
 const BLANK: Omit<CarrierResult, 'carrier'> = { rates: [], error: null, loading: false, lastFetched: null };
 const INITIAL_RESULTS: Record<IntlCarrier, CarrierResult> = {
   fedex: { carrier: 'fedex', ...BLANK },
   ups: { carrier: 'ups', ...BLANK },
+  usps: { carrier: 'usps', ...BLANK },
 };
 
-const CARRIER_LABELS: Record<string, string> = { fedex: 'FedEx', ups: 'UPS' };
-const CARRIER_COLORS: Record<string, string> = { fedex: '#4D148C', ups: '#351C15' };
+const CARRIER_LABELS: Record<string, string> = { fedex: 'FedEx', ups: 'UPS', usps: 'USPS' };
+const CARRIER_COLORS: Record<string, string> = { fedex: '#4D148C', ups: '#351C15', usps: '#004B87' };
 
 type ModalStep = 'customs' | 'carrier-detail' | 'checkout' | 'label' | null;
 
@@ -49,7 +55,7 @@ export default function IntlShippingPage() {
   const [cart, setCart] = useState<IntlCartItem[]>([]);
   const [modalStep, setModalStep] = useState<ModalStep>(null);
   const [previewCarrier, setPreviewCarrier] = useState<{
-    carrier: IntlCarrier;
+    carrier: ShippableCarrier;
     rate: ShippingRate;
     /** Our real cost for this rate — drives the modal's floor and recommendation. */
     costBasis: number;
@@ -129,12 +135,19 @@ export default function IntlShippingPage() {
     setQuotedAt(Date.now());
     setModalStep(null);
     setAnyLoading(true);
-    await Promise.all([fetchCarrier('fedex', shipment), fetchCarrier('ups', shipment)]);
+    await Promise.all([
+      fetchCarrier('fedex', shipment),
+      fetchCarrier('ups', shipment),
+      fetchCarrier('usps', shipment),
+    ]);
     setAnyLoading(false);
   }
 
   function handleSelectRate(carrier: IntlCarrier, rate: ShippingRate) {
     if (!currentShipment) return;
+    // USPS is preview-only until its label/customs path is built — never cart it.
+    // The explicit check (not a Set) also narrows `carrier` to ShippableCarrier.
+    if (carrier !== 'fedex' && carrier !== 'ups') return;
     // Aged-out quote — force a re-compare instead of carting a stale price.
     if (isQuoteStale(quotedAt, Date.now())) {
       setResults(INITIAL_RESULTS);
@@ -226,7 +239,7 @@ export default function IntlShippingPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy">International Shipping</h1>
           <p className="mt-1 text-sm text-navy/50">
-            FedEx &amp; UPS cross-border shipping with commercial-invoice generation. Domestic shipping is unaffected.
+            FedEx &amp; UPS cross-border shipping with commercial-invoice generation (USPS rates in preview). Domestic shipping is unaffected.
           </p>
         </div>
         <span className="mt-1 shrink-0 rounded-full border border-navy/15 bg-cream px-4 py-1.5 text-xs font-semibold text-navy/50">
@@ -240,9 +253,10 @@ export default function IntlShippingPage() {
 
       <IntlShipmentForm key={formKey} onSubmit={handleCompare} loading={anyLoading} />
 
-      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <FedExPanel result={results.fedex} onSelectRate={(r) => handleSelectRate('fedex', r)} selectedRateCode={null} />
         <UPSPanel result={results.ups} onSelectRate={(r) => handleSelectRate('ups', r)} selectedRateCode={null} />
+        <USPSPanel result={results.usps} onSelectRate={(r) => handleSelectRate('usps', r)} selectedRateCode={null} previewOnly />
       </div>
 
       {/* Cart */}
