@@ -10,6 +10,7 @@ import { formatDeliveryDate, isSaturdayDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
 import { nextPickupDateCompact, PICKUP_TIME_COMPACT } from '@/lib/localDate';
 import { normalizeSignature, upsDeliveryConfirmation } from '@/lib/signatureOption';
+import { attachQuotes } from '@/lib/quoteForRates';
 import {
   simpleRateEligibility,
   isSimpleRateService,
@@ -393,7 +394,10 @@ export async function POST(req: NextRequest) {
     });
 
     // buildId lets the page detect a tab left open across a deploy.
-    return NextResponse.json({ rates, buildId: serverBuildId() });
+    // Store a server-side quote per rate when payment binding is on (inert
+    // otherwise); the checkout returns the quoteId so the charge is bound.
+    const quotedRates = await attachQuotes('ups', rates);
+    return NextResponse.json({ rates: quotedRates, buildId: serverBuildId() });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return await logAndRespond({

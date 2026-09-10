@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { sanitizeEmail } from '@/lib/email';
 import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
 import { appendError } from '@/lib/errorLog';
+import { paymentBindingEnabled, getValidQuote } from '@/lib/quoteStore';
 
 /**
  * STOPGAP ceiling (2026-09-10), removed once server-side quote binding lands.
@@ -20,22 +21,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Stripe not configured' }, { status: 503 });
     }
 
-    const { email, paymentMethodId, amountUSD, carrier, serviceName, shipmentDetails } = await req.json();
+    const { email, paymentMethodId, amountUSD, carrier, serviceName, shipmentDetails, quoteIds, extrasUSD } = await req.json();
     const cleanEmail = sanitizeEmail(email);
 
     if (!cleanEmail) return NextResponse.json({ ok: false, error: 'Sender email required' }, { status: 400 });
     if (!paymentMethodId) return NextResponse.json({ ok: false, error: 'No saved card selected' }, { status: 400 });
-    if (!amountUSD || Number(amountUSD) <= 0) {
+
+    // Payment binding (flag-gated): recompute freight from server quotes when on.
+    // Mirrors create-payment-intent. Inert (client amount used) when off.
+    let chargeUSD = Number(amountUSD);
+    let boundQuoteIds: string[] = [];
+    if (paymentBindingEnabled() && Array.isArray(quoteIds) && quoteIds.length > 0) {
+      let freight = 0;
+      for (const raw of quoteIds) {
+        const q = await getValidQuote(String(raw));
+        if (!q) {
+          return NextResponse.json(
+            { ok: false, error: 'Your shipping quote expired. Please re-quote and try again.' },
+            { status: 409 }
+          );
+        }
+        freight += q.retailUSD;
+        boundQuoteIds.push(q.quoteId);
+      }
+      chargeUSD = Math.round((freight + Math.max(0, Number(extrasUSD) || 0)) * 100) / 100;
+    }
+
+    if (!chargeUSD || chargeUSD <= 0) {
       return NextResponse.json({ ok: false, error: 'Invalid amount' }, { status: 400 });
     }
-    if (Number(amountUSD) > MAX_CHARGE_USD) {
+    if (chargeUSD > MAX_CHARGE_USD) {
       await appendError({
         id: randomUUID(),
         timestamp: new Date().toISOString(),
         route: 'billing/charge-saved-card',
         status: 400,
-        message: `Off-session charge $${Number(amountUSD).toFixed(2)} exceeds the $${MAX_CHARGE_USD} ceiling — refused. Client-supplied amount on a saved card; check for tampering or raise the cap.`,
-        requestSummary: { amountUSD: Number(amountUSD), carrier, serviceName },
+        message: `Off-session charge $${chargeUSD.toFixed(2)} exceeds the $${MAX_CHARGE_USD} ceiling — refused. ${boundQuoteIds.length ? 'Recomputed from quotes.' : 'Client-supplied amount on a saved card; check for tampering.'} Raise the cap if legitimate.`,
+        requestSummary: { chargeUSD, carrier, serviceName, bound: boundQuoteIds.length > 0 },
       });
       return NextResponse.json({ ok: false, error: 'Amount exceeds the allowed maximum.' }, { status: 400 });
     }
@@ -57,7 +79,7 @@ export async function POST(req: NextRequest) {
     } catch {
       funding = 'unknown';
     }
-    const { feeUSD, totalUSD } = computeCardFee(Number(amountUSD), funding);
+    const { feeUSD, totalUSD } = computeCardFee(chargeUSD, funding);
 
     try {
       const pi = await stripe.paymentIntents.create({
@@ -79,6 +101,7 @@ export async function POST(req: NextRequest) {
           destZip: String(shipmentDetails?.destZip ?? ''),
           weightLbs: String(shipmentDetails?.weightLbs ?? ''),
           cardFeeUSD: feeUSD.toFixed(2),
+          quoteIds: boundQuoteIds.join(','),
         },
       });
 

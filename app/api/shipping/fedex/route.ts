@@ -5,6 +5,7 @@ import { getFedexToken } from '@/lib/carrierTokens';
 import { fedexTransitToDays, formatDeliveryDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
 import { normalizeSignature, fedexSignatureBlock } from '@/lib/signatureOption';
+import { attachQuotes } from '@/lib/quoteForRates';
 import { nextPickupDateStamp } from '@/lib/localDate';
 
 const ROUTE = 'shipping/fedex';
@@ -186,7 +187,10 @@ export async function POST(req: NextRequest) {
     });
 
     // buildId lets the page detect a tab left open across a deploy.
-    return NextResponse.json({ rates, buildId: serverBuildId() });
+    // Store a server-side quote per rate when payment binding is on (inert
+    // otherwise); the checkout returns the quoteId so the charge is bound.
+    const quotedRates = await attachQuotes('fedex', rates);
+    return NextResponse.json({ rates: quotedRates, buildId: serverBuildId() });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return await logAndRespond({

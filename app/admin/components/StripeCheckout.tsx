@@ -23,7 +23,8 @@ async function submitItem(
   paymentMethod: 'card' | 'cash',
   packingFeeUSD: number,
   submitPath: string,
-  cardFeeUSD = 0
+  cardFeeUSD = 0,
+  paymentIntentId?: string
 ): Promise<CartResult> {
   const shippingUSD = item.rate.totalChargeUSD;
   const insuranceUSD = item.insurance?.premiumUSD ?? 0;
@@ -62,6 +63,12 @@ async function submitItem(
       totalUSD,
       insurance: item.insurance,
       paymentMethod,
+      // Payment binding (server-enforced only when its flag is on). quoteId is
+      // present only when the rate route stored a quote; paymentIntentId lets
+      // the server confirm this label was paid for. Both ignored server-side
+      // when binding is off, so this is inert until enabled.
+      quoteId: item.rate.quoteId,
+      paymentIntentId,
     }),
   });
 
@@ -200,13 +207,13 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
   // Shared post-payment step: generate labels for each package, then finish.
   // The packing fee and card fee are transaction-level, so they're recorded on
   // the first item only (avoids double-counting across packages).
-  async function generateLabels(paymentMethod: 'card' | 'cash', feeUSD = 0) {
+  async function generateLabels(paymentMethod: 'card' | 'cash', feeUSD = 0, paymentIntentId?: string) {
     setStep('processing');
     const results: CartResult[] = [];
     for (let i = 0; i < cart.length; i++) {
       setProcessingMsg(`Generating label ${i + 1} of ${cart.length}…`);
       results.push(
-        await submitItem(cart[i], paymentMethod, i === 0 ? packingFeeUSD : 0, submitPath, i === 0 ? feeUSD : 0)
+        await submitItem(cart[i], paymentMethod, i === 0 ? packingFeeUSD : 0, submitPath, i === 0 ? feeUSD : 0, paymentIntentId)
       );
     }
 
@@ -275,11 +282,14 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
             destZip: cart[0]?.shipment.destZip,
             weightLbs: cart.reduce((s, i) => s + i.shipment.weightLbs, 0),
           },
+          // Payment binding (ignored server-side unless its flag is on).
+          quoteIds: cart.map((i) => i.rate.quoteId).filter(Boolean),
+          extrasUSD: totalInsurance + packingFeeUSD + totalDuties,
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error ?? `Server error ${res.status}`);
-      await generateLabels('card', Number(data.feeUSD) || 0);
+      await generateLabels('card', Number(data.feeUSD) || 0, data.paymentIntentId);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'The saved card could not be charged.');
       setStep('error');
@@ -345,6 +355,12 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
               destZip: cart[0]?.shipment.destZip,
               weightLbs: cart.reduce((s, i) => s + i.shipment.weightLbs, 0),
             },
+            // Payment binding (server ignores these unless its flag is on): the
+            // per-package quotes and the non-freight extras, so the server can
+            // recompute freight authoritatively. quoteIds is empty when binding
+            // is off (no quotes were stored), leaving amountUSD in charge.
+            quoteIds: cart.map((i) => i.rate.quoteId).filter(Boolean),
+            extrasUSD: totalInsurance + packingFeeUSD + totalDuties,
           }),
         });
         const piData = await piRes.json();
@@ -369,7 +385,8 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
       const { error } = await stripeRef.current.confirmCardPayment(secret);
       if (error) throw new Error(error.message ?? 'Payment declined');
 
-      await generateLabels('card', feeToRecord);
+      // PI id (for payment binding) is the prefix of the client secret.
+      await generateLabels('card', feeToRecord, secret.split('_secret')[0]);
     } catch (err: unknown) {
       setIsCharging(false);
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred.');
@@ -401,7 +418,10 @@ export default function StripeCheckout({ cart, onClose, onSuccess, submitPath = 
         throw new Error(result.failureMessage ?? 'The card payment was not completed.');
       }
       readerPidRef.current = null;
-      await generateLabels('card', 0); // no in-person surcharge
+      // Pass the reader PI id — submit recognises it as a terminal payment and
+      // accepts it under binding without touching the reader flow. `pid` is
+      // still in scope after the ref is cleared.
+      await generateLabels('card', 0, pid); // no in-person surcharge
     } catch (err: unknown) {
       readerPidRef.current = null;
       setErrorMsg(err instanceof Error ? err.message : 'Reader payment failed.');

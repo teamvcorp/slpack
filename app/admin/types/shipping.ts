@@ -109,6 +109,12 @@ export interface ShippingRate {
     /** Parcel is within 5% of the tier cap; re-measure before taping. */
     nearBoundary: boolean;
   };
+  /** Server-side quote id for this rate — present ONLY when payment binding is
+   *  enabled (the rate route stored the authoritative price). The checkout sends
+   *  it back so the charge is recomputed from the server figure, not the
+   *  browser's. Absent = binding off, and the client falls back to its own
+   *  amount exactly as before. See lib/quoteStore.ts. */
+  quoteId?: string;
 }
 
 /** Which carrier price book a quote came from — see ShippingRate.rateSource. */

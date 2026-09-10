@@ -121,7 +121,11 @@ export async function POST(req: NextRequest) {
     // rather than the client's shippingUSD.
     let boundFreightUSD: number | null = null;
     let boundQuoteId: string | null = null;
-    if (paymentBindingEnabled()) {
+    // Bind the STANDALONE shipping checkout only. Combined register+shipping
+    // sales carry a transactionId and are priced through /api/register/checkout
+    // — a different flow that isn't quote-bound yet, so leave it on its existing
+    // path rather than 409 every combined sale. (Follow-up: bind that flow too.)
+    if (paymentBindingEnabled() && !transactionId) {
       const q = await getValidQuote(String(quoteId ?? ''));
       if (!q) {
         return NextResponse.json(
@@ -145,8 +149,14 @@ export async function POST(req: NextRequest) {
             apiVersion: '2025-02-24.acacia',
           });
           const pi = await stripe.paymentIntents.retrieve(pid);
+          // Reader (in-person tap) PIs are priced by /api/terminal/collect and
+          // don't carry quoteIds; a succeeded reader PI is accepted without the
+          // quote-name check so tap-and-pay keeps working under binding (its own
+          // route is deliberately untouched). Elements/saved-card PIs must name
+          // this quote.
+          const viaReader = pi.metadata?.source === 'terminal';
           const paidQuotes = String(pi.metadata?.quoteIds ?? '').split(',').filter(Boolean);
-          if (pi.status !== 'succeeded' || !paidQuotes.includes(q.quoteId)) {
+          if (pi.status !== 'succeeded' || !(viaReader || paidQuotes.includes(q.quoteId))) {
             return NextResponse.json(
               { error: 'Payment could not be verified for this shipment.' },
               { status: 402 }
