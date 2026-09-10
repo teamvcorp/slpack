@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react';
 import DropoffReport from '../components/DropoffReport';
 import SalesReport from '../components/SalesReport';
 import MarginReport from '../components/MarginReport';
-import type { ShipmentLogEntry, CarrierKey, ErrorLogEntry } from '../types/shipping';
+import type { ShipmentListEntry, CarrierKey, ErrorLogEntry } from '../types/shipping';
 
 type Period = 'day' | 'week' | 'month' | 'all';
 type Tab = 'shipments' | 'sales' | 'margin' | 'dropoffs' | 'errors';
@@ -21,10 +21,14 @@ const TAB_LABELS: Record<Tab, string> = {
 const SELF_FETCHING: Tab[] = ['sales', 'margin', 'dropoffs'];
 
 interface LogResponse {
-  entries: ShipmentLogEntry[];
+  /** Label images are NOT included — see ShipmentListEntry. Use `hasLabel` to
+   *  tell whether a label exists; fetch it by id to actually print it. */
+  entries: ShipmentListEntry[];
   totalRevenue: number;
   totalShipments: number;
   byCarrier: Record<string, number>;
+  /** Row cap hit — the totals cover only the rows returned. */
+  truncated?: boolean;
 }
 
 interface ErrorsResponse {
@@ -71,7 +75,8 @@ export default function ShipmentLogPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/shipping/log?period=${p}`);
+      // no-store: a counter must never be shown a heuristically-cached total.
+      const res = await fetch(`/api/shipping/log?period=${p}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json());
     } catch (e) {
@@ -85,7 +90,7 @@ export default function ShipmentLogPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/shipping/errors?period=${p}`);
+      const res = await fetch(`/api/shipping/errors?period=${p}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setErrorsData(await res.json());
     } catch (e) {
@@ -302,6 +307,15 @@ export default function ShipmentLogPage() {
             ))}
           </div>
 
+          {/* A capped list would make the totals above quietly wrong, which at a
+              counter is worse than an error — so say so plainly. */}
+          {data.truncated && (
+            <div className="mb-4 rounded-xl border border-red/20 bg-red/5 px-4 py-3 text-sm text-navy">
+              Too many shipments to show at once. The list and the totals above cover only
+              the most recent {data.entries.length}. Choose a shorter period for exact figures.
+            </div>
+          )}
+
           {/* Entries table */}
           {(() => {
             const q = search.trim().toLowerCase();
@@ -344,6 +358,23 @@ export default function ShipmentLogPage() {
                       const color = CARRIER_COLORS[entry.carrier] ?? '#ccc';
                       const isVoided = !!entry.voided;
                       const isVoiding = voidingId === entry.id;
+                      /* The carrier's charge, or null when we genuinely don't
+                         know it (bug fix, 2026-09-09).
+                         A shipment whose label call failed stores this as null,
+                         and the old guard here was `!== undefined` — which null
+                         PASSES, so null.toFixed() threw and, with no error
+                         boundary, unmounted the entire Reports page. That is
+                         why every period wider than Today died.
+                         `Number.isFinite(Number(x))` is not the fix either:
+                         Number(null) is 0, which would quietly report a $0.00
+                         carrier cost and a fabricated margin. Wrong money is
+                         worse than a crash. Only a typeof test rejects null,
+                         undefined and NaN alike. */
+                      const carrierCost =
+                        typeof entry.carrierCostUSD === 'number' &&
+                        Number.isFinite(entry.carrierCostUSD)
+                          ? entry.carrierCostUSD
+                          : null;
                       return (
                         <tr
                           key={entry.id}
@@ -415,12 +446,12 @@ export default function ShipmentLogPage() {
                                 show nothing. Excludes carrier post-audit
                                 adjustments (reweigh, dim-weight), which arrive on
                                 the invoice days later. */}
-                            {!isVoided && entry.carrierCostUSD !== undefined && (() => {
-                              const margin = entry.shippingUSD - entry.carrierCostUSD;
+                            {!isVoided && carrierCost !== null && (() => {
+                              const margin = entry.shippingUSD - carrierCost;
                               return (
                                 <p
                                   className={`text-xs ${margin < 0 ? 'font-semibold text-red-600' : 'text-navy/40'}`}
-                                  title={`Carrier cost $${entry.carrierCostUSD.toFixed(2)}`}
+                                  title={`Carrier cost $${carrierCost.toFixed(2)}`}
                                 >
                                   {margin < 0 ? '−' : '+'}${Math.abs(margin).toFixed(2)} margin
                                 </p>
@@ -432,9 +463,9 @@ export default function ShipmentLogPage() {
                               <button
                                 type="button"
                                 onClick={() => handlePrintLabel(entry.id)}
-                                disabled={!entry.labelBase64}
+                                disabled={!entry.hasLabel}
                                 className="rounded-lg border border-navy/15 bg-white px-2 py-1 text-xs font-medium text-navy shadow-sm transition-colors hover:bg-cream disabled:cursor-not-allowed disabled:text-navy/30"
-                                title={entry.labelBase64 ? 'Open label in new tab to reprint' : 'No stored label'}
+                                title={entry.hasLabel ? 'Open label in new tab to reprint' : 'No stored label'}
                               >
                                 Print
                               </button>

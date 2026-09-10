@@ -15,6 +15,25 @@ const options = {
   serverSelectionTimeoutMS: 10_000,
 };
 
+/**
+ * Pass this to every WRITE (insertOne / updateOne / updateMany).
+ *
+ * WHY (bug fix, 2026-09-09): the driver's default is `ignoreUndefined: false`,
+ * which serialises a JavaScript `undefined` as BSON **null**. Our write paths
+ * deliberately choose absence over null — e.g. `carrierCostUSD ?? undefined` in
+ * app/api/shipping/submit/route.ts when a label call fails — and the driver was
+ * silently overruling them. Read paths test for absence (`x !== undefined`), so
+ * the stored null slipped past the guard and `null.toFixed()` took down the
+ * whole Reports page. Storing the field as ABSENT is what every reader assumes.
+ *
+ * DO NOT set this on the MongoClient instead. The option applies to query
+ * FILTERS as well as documents: with it on client-wide, a bug that passed an
+ * undefined id would turn `findOne({ id: undefined })` into `findOne({})` and
+ * hand back an arbitrary customer's shipment. Scoping it to writes gets the
+ * correctness fix with none of that exposure — keep it here, per operation.
+ */
+export const IGNORE_UNDEFINED = { ignoreUndefined: true } as const;
+
 declare global {
   // eslint-disable-next-line no-var
   var _mongoClient: MongoClient | undefined;

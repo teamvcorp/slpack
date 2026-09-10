@@ -68,7 +68,7 @@ export default function MarginReport() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/reports/margin?period=${p}`);
+      const res = await fetch(`/api/reports/margin?period=${p}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json());
     } catch (e) {

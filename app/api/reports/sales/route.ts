@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readSalesSince } from '@/lib/saleLog';
-import { readShipmentsSince } from '@/lib/shipmentLog';
-import { reportPeriodStart, type ReportPeriod } from '@/lib/reportPeriod';
+import { readShipmentList, SHIPMENT_LIST_LIMIT } from '@/lib/shipmentLog';
+import { reportPeriodStartIso, type ReportPeriod } from '@/lib/reportPeriod';
 import type { UnifiedSale } from '@/app/admin/types/reports';
 
 const VALID: ReportPeriod[] = ['today', 'mtd', 'ytd'];
@@ -23,10 +23,10 @@ export async function GET(req: NextRequest) {
   const raw = searchParams.get('period') ?? 'today';
   const period: ReportPeriod = (VALID as string[]).includes(raw) ? (raw as ReportPeriod) : 'today';
 
-  const since = reportPeriodStart(period).toISOString();
+  const since = reportPeriodStartIso(period);
   const [sales, shipments] = await Promise.all([
     readSalesSince(since),
-    readShipmentsSince(since),
+    readShipmentList({ sinceIso: since }),
   ]);
 
   const registerEntries: UnifiedSale[] = sales.map((s) => ({
@@ -84,5 +84,7 @@ export async function GET(req: NextRequest) {
     totalRevenue,
     totalTax,
     byPayment,
+    /** Shipment row cap hit — the totals above cover only the rows returned. */
+    truncated: shipments.length >= SHIPMENT_LIST_LIMIT,
   });
 }

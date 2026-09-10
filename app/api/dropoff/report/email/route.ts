@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readDropoffsSince } from '@/lib/dropoffLog';
-import { reportPeriodStart } from '@/lib/reportPeriod';
+import { reportPeriodStartIso } from '@/lib/reportPeriod';
 import { buildDropoffReportHtml } from '@/lib/receipt';
 import { sanitizeEmail } from '@/lib/email';
 import type { DropoffPeriod } from '@/app/admin/types/dropoff';
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const raw = String(body.period ?? 'mtd');
     const period: DropoffPeriod = (VALID as string[]).includes(raw) ? (raw as DropoffPeriod) : 'mtd';
 
-    const since = reportPeriodStart(period).toISOString();
+    const since = reportPeriodStartIso(period);
     const entries = await readDropoffsSince(since);
     const byCarrier = entries.reduce<Record<string, number>>((acc, e) => {
       acc[e.carrier] = (acc[e.carrier] ?? 0) + 1;

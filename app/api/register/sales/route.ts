@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readSalesSince } from '@/lib/saleLog';
-import { reportPeriodStart, type ReportPeriod } from '@/lib/reportPeriod';
+import { reportPeriodStartIso, type ReportPeriod } from '@/lib/reportPeriod';
 
 const VALID: ReportPeriod[] = ['today', 'mtd', 'ytd'];
 
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const raw = searchParams.get('period') ?? 'today';
   const period: ReportPeriod = (VALID as string[]).includes(raw) ? (raw as ReportPeriod) : 'today';
 
-  const since = reportPeriodStart(period).toISOString();
+  const since = reportPeriodStartIso(period);
   const entries = await readSalesSince(since);
 
   const totalRevenue = entries.reduce((s, e) => s + e.totalUSD, 0);

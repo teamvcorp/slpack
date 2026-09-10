@@ -1,5 +1,5 @@
-import client from '@/lib/mongodb';
-import type { ShipmentLogEntry } from '@/app/admin/types/shipping';
+import client, { IGNORE_UNDEFINED } from '@/lib/mongodb';
+import type { ShipmentLogEntry, ShipmentListEntry } from '@/app/admin/types/shipping';
 
 const DB = 'slpack';
 const COLLECTION = 'shipments';
@@ -8,23 +8,91 @@ function col() {
   return client.db(DB).collection<ShipmentLogEntry>(COLLECTION);
 }
 
-export async function readLog(): Promise<ShipmentLogEntry[]> {
-  await client.connect();
-  return col().find({}).sort({ timestamp: -1 }).toArray();
-}
+/**
+ * Field WHITELIST for list/report reads — see ShipmentListEntry for the size
+ * measurements that motivated it.
+ *
+ * A whitelist, not `{ labelBase64: 0 }`: a field added to the log later (a
+ * document blob, an ID scan, a payment token) then cannot leak into a browser
+ * response by default. Opting a field IN stays a deliberate act.
+ *
+ * `hasLabel` is a computed projection expression, which is why this must be an
+ * INCLUSION projection — Mongo forbids mixing exclusions with computed fields,
+ * and `_id: 0` is the one legal exception.
+ */
+const SHIPMENT_LIST_PROJECTION = {
+  _id: 0,
+  id: 1,
+  timestamp: 1,
+  carrier: 1,
+  serviceName: 1,
+  originZip: 1,
+  destZip: 1,
+  destCity: 1,
+  destState: 1,
+  destAttention: 1,
+  weightLbs: 1,
+  signature: 1,
+  shippingUSD: 1,
+  insuranceUSD: 1,
+  insuranceDescription: 1,
+  packingFeeUSD: 1,
+  dutiesUSD: 1,
+  cardFeeUSD: 1,
+  totalUSD: 1,
+  carrierCostUSD: 1,
+  listPriceUSD: 1,
+  rateSource: 1,
+  priceOverridden: 1,
+  saturdayDelivery: 1,
+  simpleRateTier: 1,
+  transactionId: 1,
+  trackingNumber: 1,
+  customerName: 1,
+  customerEmail: 1,
+  paymentMethod: 1,
+  voided: 1,
+  voidedAt: 1,
+  voidReason: 1,
+  accepted: 1,
+  acceptedAt: 1,
+  acceptedSource: 1,
+  hasLabel: { $ne: [{ $ifNull: ['$labelBase64', ''] }, ''] },
+} as const;
 
-/** Shipments with timestamp >= sinceIso, newest first. */
-export async function readShipmentsSince(sinceIso: string): Promise<ShipmentLogEntry[]> {
+/**
+ * Hard ceiling on rows in one list response. Post-projection a row is ~1 KB, so
+ * this caps a response near 2 MB — comfortably under the serverless limit, and
+ * roughly a decade at current volume. Callers MUST surface truncation: a
+ * silently short list makes a revenue total quietly wrong, which at a cash
+ * counter is worse than an error.
+ */
+export const SHIPMENT_LIST_LIMIT = 2000;
+
+/**
+ * Shipments for the reports, newest first, WITHOUT the label images.
+ *
+ * `sinceIso` null/undefined means no lower bound ("all time") — the row limit
+ * is then the only thing bounding the response.
+ */
+export async function readShipmentList(
+  opts: { sinceIso?: string | null; limit?: number } = {}
+): Promise<ShipmentListEntry[]> {
   await client.connect();
+  const filter = opts.sinceIso ? { timestamp: { $gte: opts.sinceIso } } : {};
   return col()
-    .find({ timestamp: { $gte: sinceIso } })
+    .find(filter)
+    .project<ShipmentListEntry>(SHIPMENT_LIST_PROJECTION)
     .sort({ timestamp: -1 })
+    .limit(opts.limit ?? SHIPMENT_LIST_LIMIT)
     .toArray();
 }
 
 export async function appendLog(entry: ShipmentLogEntry): Promise<void> {
   await client.connect();
-  await col().insertOne(entry);
+  // IGNORE_UNDEFINED: an optional field left undefined must be stored ABSENT,
+  // not as null — see the note in lib/mongodb.ts.
+  await col().insertOne(entry, IGNORE_UNDEFINED);
 }
 
 /** All shipments in a combined transaction, oldest first (for the unified receipt). */
@@ -59,7 +127,10 @@ export async function markShipmentVoided(
         voidCarrierStatus: patch.voidCarrierStatus,
         voidCarrierMessage: patch.voidCarrierMessage,
       },
-    }
+    },
+    // voidReason and voidCarrierMessage are optional — without this they would
+    // be written as null rather than left off. See lib/mongodb.ts.
+    IGNORE_UNDEFINED
   );
   return res.matchedCount > 0;
 }
@@ -115,6 +186,6 @@ export async function markShipmentAcceptance(
     set.acceptedAt = patch.acceptedAt ?? new Date().toISOString();
     set.acceptedSource = patch.acceptedSource ?? 'tracking';
   }
-  const res = await col().updateOne({ id }, { $set: set });
+  const res = await col().updateOne({ id }, { $set: set }, IGNORE_UNDEFINED);
   return res.matchedCount > 0;
 }

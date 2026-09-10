@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readShipmentsSince } from '@/lib/shipmentLog';
-import { reportPeriodStart, type ReportPeriod } from '@/lib/reportPeriod';
+import { readShipmentList, SHIPMENT_LIST_LIMIT } from '@/lib/shipmentLog';
+import { reportPeriodStartIso, type ReportPeriod } from '@/lib/reportPeriod';
 import { classifyService, type ServiceClass } from '@/lib/serviceClass';
 import { SHIPPING_MARKUP } from '@/lib/shippingPricing';
 import type { RateSource } from '@/app/admin/types/shipping';
@@ -72,8 +72,8 @@ export async function GET(req: NextRequest) {
   const raw = searchParams.get('period') ?? 'mtd';
   const period: ReportPeriod = (VALID as string[]).includes(raw) ? (raw as ReportPeriod) : 'mtd';
 
-  const since = reportPeriodStart(period).toISOString();
-  const shipments = await readShipmentsSince(since);
+  const since = reportPeriodStartIso(period);
+  const shipments = await readShipmentList({ sinceIso: since });
 
   // Voided shipments were refunded and their labels cancelled — they are not
   // revenue and must not drag the margin figures around.
@@ -191,5 +191,7 @@ export async function GET(req: NextRequest) {
     targetMarkupX: SHIPPING_MARKUP,
     /** Shipments with no carrier rating (USPS/DHL) — margin genuinely unknown. */
     unratedCount: sum((r) => r.count - r.ratedCount),
+    /** Row cap hit — every figure above covers only the rows returned. */
+    truncated: shipments.length >= SHIPMENT_LIST_LIMIT,
   });
 }

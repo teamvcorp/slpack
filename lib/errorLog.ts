@@ -1,4 +1,4 @@
-import client from '@/lib/mongodb';
+import client, { IGNORE_UNDEFINED } from '@/lib/mongodb';
 import type { ErrorLogEntry } from '@/app/admin/types/shipping';
 
 const DB = 'slpack';
@@ -15,7 +15,8 @@ function col() {
 export async function appendError(entry: ErrorLogEntry): Promise<void> {
   try {
     await client.connect();
-    await col().insertOne(entry);
+    // IGNORE_UNDEFINED: optional diagnostic fields stay ABSENT — see lib/mongodb.ts.
+    await col().insertOne(entry, IGNORE_UNDEFINED);
   } catch (err) {
     console.error(
       '[error-log] failed to persist error entry',

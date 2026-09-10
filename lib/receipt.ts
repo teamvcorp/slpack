@@ -1,6 +1,6 @@
 import type { SaleRecord } from '@/app/admin/types/register';
 import type { DropoffRecord, DropoffPeriod } from '@/app/admin/types/dropoff';
-import type { ShipmentLogEntry, CarrierKey } from '@/app/admin/types/shipping';
+import type { ShipmentReceiptFields, CarrierKey } from '@/app/admin/types/shipping';
 import { DROPOFF_CARRIER_LABELS, trackingUrl } from '@/lib/dropoff';
 import { SITE } from '@/lib/siteConfig';
 import { SIGNATURE_LABELS } from '@/lib/signatureOption';
@@ -277,8 +277,13 @@ export function buildCombinedReceiptHtml(data: CombinedReceiptData): string {
  * Builds a customer shipping receipt from a stored shipment log entry. Used for
  * both the email sent at purchase time and later reprint/resend from the Sales
  * report, so the two always match. Relies only on inline styles (no external CSS).
+ *
+ * Takes ShipmentReceiptFields, not the whole ShipmentLogEntry, because a full
+ * entry carries the base64 label image that list responses deliberately omit —
+ * and a receipt never read it. A full entry still satisfies this structurally,
+ * so the purchase-time callers are unaffected.
  */
-export function buildShipmentReceiptHtml(entry: ShipmentLogEntry): string {
+export function buildShipmentReceiptHtml(entry: ShipmentReceiptFields): string {
   const carrierLabel = CARRIER_LABELS[entry.carrier] ?? entry.carrier.toUpperCase();
   const insRow =
     entry.insuranceUSD > 0

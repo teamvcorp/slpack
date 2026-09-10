@@ -1,4 +1,4 @@
-import client from '@/lib/mongodb';
+import client, { IGNORE_UNDEFINED } from '@/lib/mongodb';
 import type { DropoffRecord } from '@/app/admin/types/dropoff';
 
 const DB = 'slpack';
@@ -10,7 +10,9 @@ function col() {
 
 export async function appendDropoff(entry: DropoffRecord): Promise<void> {
   await client.connect();
-  await col().insertOne(entry);
+  // IGNORE_UNDEFINED: optional customer fields must be stored ABSENT, not null
+  // — see lib/mongodb.ts.
+  await col().insertOne(entry, IGNORE_UNDEFINED);
 }
 
 /** Drop-offs with timestamp >= sinceIso, newest first. */

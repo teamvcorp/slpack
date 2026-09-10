@@ -1,10 +1,14 @@
 import type { SaleRecord } from './register';
-import type { ShipmentLogEntry } from './shipping';
+import type { ShipmentListEntry } from './shipping';
 
 /**
  * A single transaction in the unified Sales report — either a register POS sale
- * or a shipping sale. Carries the full source record so the client can rebuild
- * the correct receipt for reprint without an extra round-trip.
+ * or a shipping sale. Carries enough of the source record for the client to
+ * rebuild the receipt for reprint without an extra round-trip.
+ *
+ * The shipping side is a ShipmentListEntry, NOT the full log entry: the stored
+ * label image is deliberately withheld from list responses (see that type), and
+ * a receipt never needed it. The label itself is fetched by id when printed.
  */
 export interface UnifiedSale {
   id: string;
@@ -20,9 +24,9 @@ export interface UnifiedSale {
   totalUSD: number;
   /** Shipping only — voided sales are listed but excluded from money totals */
   voided?: boolean;
-  /** Raw source record (exactly one is present, per `source`) */
+  /** Source record (exactly one is present, per `source`) */
   register?: SaleRecord;
-  shipment?: ShipmentLogEntry;
+  shipment?: ShipmentListEntry;
 }
 
 export interface UnifiedSalesResponse {
@@ -32,4 +36,6 @@ export interface UnifiedSalesResponse {
   totalRevenue: number;
   totalTax: number;
   byPayment: Record<string, { count: number; revenue: number }>;
+  /** Shipment row cap hit — totals cover only the rows returned. */
+  truncated?: boolean;
 }

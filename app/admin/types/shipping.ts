@@ -263,6 +263,72 @@ export interface ShipmentLogEntry {
   acceptedSource?: 'tracking' | 'manual';
 }
 
+/** Exactly the fields buildShipmentReceiptHtml renders. Structural, so both a
+ *  full ShipmentLogEntry and the trimmed list row below satisfy it. */
+export type ShipmentReceiptFields = Pick<
+  ShipmentLogEntry,
+  | 'carrier'
+  | 'serviceName'
+  | 'originZip'
+  | 'destZip'
+  | 'destCity'
+  | 'destState'
+  | 'destAttention'
+  | 'weightLbs'
+  | 'signature'
+  | 'trackingNumber'
+  | 'customerName'
+  | 'shippingUSD'
+  | 'insuranceUSD'
+  | 'insuranceDescription'
+  | 'packingFeeUSD'
+  | 'dutiesUSD'
+  | 'cardFeeUSD'
+  | 'totalUSD'
+>;
+
+/**
+ * A shipment as returned by the LIST endpoints (shipping log, sales, margin).
+ *
+ * WHY THIS IS NOT ShipmentLogEntry: labelBase64 holds the full base64 label
+ * image, ~25 KB per shipment, and the list responses nested the entire source
+ * document. A year-to-date sales response measured 2.06 MB of which 153 KB was
+ * actually used — 93% was label images that no list renders. The serverless
+ * response cap is 4.5 MB, so at current volume the report was roughly a year
+ * from failing outright. Labels are fetched on demand by id through
+ * /api/shipping/label/[id] (that is what the Print and Reprint buttons do), so
+ * a list only needs to know WHETHER one exists — hence `hasLabel`.
+ *
+ * Customer phone and the sender contact are dropped for the same reason plus a
+ * better one: no report renders them, and there is no cause to ship a year of
+ * customer phone numbers to a browser.
+ */
+export type ShipmentListEntry = ShipmentReceiptFields &
+  Pick<
+    ShipmentLogEntry,
+    | 'id'
+    | 'timestamp'
+    | 'customerEmail'
+    | 'paymentMethod'
+    | 'carrierCostUSD'
+    | 'listPriceUSD'
+    | 'rateSource'
+    | 'priceOverridden'
+    | 'saturdayDelivery'
+    | 'simpleRateTier'
+    | 'transactionId'
+    | 'voided'
+    | 'voidedAt'
+    | 'voidReason'
+    | 'accepted'
+    | 'acceptedAt'
+    | 'acceptedSource'
+  > & {
+    /** True when a printable label is stored. Computed server-side precisely
+     *  because the field it tests is the one we refuse to send. */
+    hasLabel: boolean;
+  };
+
 /** Stored in /api/shipping/errors — one entry per server-side API error */
 export interface ErrorLogEntry {
   id: string;

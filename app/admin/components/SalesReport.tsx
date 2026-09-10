@@ -30,7 +30,8 @@ export default function SalesReport() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/reports/sales?period=${p}`);
+      // no-store: a counter must never be shown a heuristically-cached total.
+      const res = await fetch(`/api/reports/sales?period=${p}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json());
     } catch (e) {
@@ -121,6 +122,14 @@ export default function SalesReport() {
 
       {data && !loading && (
         <>
+          {/* A capped list would make the revenue figures below quietly wrong. */}
+          {data.truncated && (
+            <div className="mb-4 rounded-xl border border-red/20 bg-red/5 px-4 py-3 text-sm text-navy">
+              Too many shipments to show at once — the figures below cover only the most
+              recent ones. Choose a shorter period for exact totals.
+            </div>
+          )}
+
           {/* Summary */}
           <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-xl border border-navy/10 bg-white p-4 shadow-sm">

@@ -1,4 +1,4 @@
-import client from '@/lib/mongodb';
+import client, { IGNORE_UNDEFINED } from '@/lib/mongodb';
 import type { SaleRecord } from '@/app/admin/types/register';
 
 const DB = 'slpack';
@@ -37,5 +37,7 @@ export async function getSaleByTransaction(
 
 export async function appendSale(entry: SaleRecord): Promise<void> {
   await client.connect();
-  await col().insertOne(entry);
+  // IGNORE_UNDEFINED: optional fields (cardFeeUSD, paymentIntentId,
+  // transactionId…) must be stored ABSENT, not null — see lib/mongodb.ts.
+  await col().insertOne(entry, IGNORE_UNDEFINED);
 }
