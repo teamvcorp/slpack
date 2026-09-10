@@ -5,7 +5,7 @@ import { getFedexToken } from '@/lib/carrierTokens';
 import { fedexTransitToDays, formatDeliveryDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
 import { normalizeSignature, fedexSignatureBlock } from '@/lib/signatureOption';
-import { localDateStamp } from '@/lib/localDate';
+import { nextPickupDateStamp } from '@/lib/localDate';
 
 const ROUTE = 'shipping/fedex';
 
@@ -43,9 +43,13 @@ export async function POST(req: NextRequest) {
 
     const token = await getFedexToken();
 
-    // Store-local date (America/Chicago) — UTC would roll past midnight at 7 pm
-    // local and shift FedEx's committed delivery date. See lib/localDate.ts.
-    const today = localDateStamp(); // YYYY-MM-DD
+    // The day this parcel is actually COLLECTED, not merely labelled — the
+    // store closes at 6 pm and there are no weekend pickups, so a label
+    // written Friday evening does not move until Monday. FedEx counts its
+    // committed delivery date from this, and it must agree with what the UPS
+    // route sends or the compare screen promises two different days for the
+    // same parcel. See lib/localDate.ts.
+    const shipDate = nextPickupDateStamp(); // YYYY-MM-DD
 
     const payload = {
       accountNumber: { value: process.env.FEDEX_ACCOUNT_NUMBER ?? '' },
@@ -71,7 +75,7 @@ export async function POST(req: NextRequest) {
           },
         },
         pickupType: 'USE_SCHEDULED_PICKUP',
-        shipDateStamp: today, // lets FedEx compute committed delivery dates
+        shipDateStamp: shipDate, // lets FedEx compute committed delivery dates
         packagingType: fedexPackaging,
         // ACCOUNT = our negotiated rate (actual cost); LIST = FedEx's published
         // retail. Asking for LIST returns list rates IN ADDITION to the account

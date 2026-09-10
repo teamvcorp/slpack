@@ -4,7 +4,7 @@ import { getFedexToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
 import { fedexCustomsClearanceDetail, fedexTotalCustomsValue } from '@/lib/shippingIntl';
-import { localDateStamp } from '@/lib/localDate';
+import { nextPickupDateStamp } from '@/lib/localDate';
 import { fedexActualCostUSD } from '@/lib/carrierCost';
 import type { IntlShipmentInput, IntlDocument } from '@/app/admin/types/shippingIntl';
 
@@ -64,9 +64,13 @@ export async function POST(req: NextRequest) {
 
     const token = await getFedexToken();
     const accountNumber = process.env.FEDEX_ACCOUNT_NUMBER;
-    // Store-local date — see lib/localDate.ts (UTC rolled the ship date forward
-    // after 7 pm local, shifting the carrier's delivery commitment).
-    const today = localDateStamp();
+    // The day this parcel is actually COLLECTED, not merely labelled — the
+    // store closes at 6 pm and there are no weekend pickups, so a label
+    // written Friday evening does not move until Monday. FedEx counts its
+    // committed delivery date from this, and it must agree with what the UPS
+    // route sends or the compare screen promises two different days for the
+    // same parcel. See lib/localDate.ts.
+    const shipDate = nextPickupDateStamp(); // YYYY-MM-DD
 
     const declaredValue =
       insurance?.enabled && Number(insurance?.valueUSD) > 0
@@ -126,7 +130,7 @@ export async function POST(req: NextRequest) {
             },
           },
         ],
-        shipDatestamp: today,
+        shipDatestamp: shipDate,
         serviceType: String(serviceCode),
         packagingType: 'YOUR_PACKAGING',
         pickupType: 'USE_SCHEDULED_PICKUP',

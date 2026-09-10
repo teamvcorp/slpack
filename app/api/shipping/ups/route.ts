@@ -8,6 +8,7 @@ import { getUpsToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { formatDeliveryDate, isSaturdayDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
+import { nextPickupDateCompact, PICKUP_TIME_COMPACT } from '@/lib/localDate';
 import { normalizeSignature, upsDeliveryConfirmation } from '@/lib/signatureOption';
 import {
   simpleRateEligibility,
@@ -61,11 +62,16 @@ export async function POST(req: NextRequest) {
 
     const token = await getUpsToken();
 
-    // Pickup date/time (today) — required for time-in-transit estimates.
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const pickupDate = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
-    const pickupTime = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+    // The day this parcel is actually COLLECTED — store-local, past the 6 pm
+    // pickup cutoff, and never a weekend. UPS counts its transit commitment
+    // from this date, so it has to be a day a pickup really happens.
+    //
+    // This was `now.getFullYear()/getMonth()/getDate()` on the SERVER's clock.
+    // The host runs UTC, so after 7 pm Central it stamped TOMORROW — and on a
+    // Friday evening that meant SATURDAY, a day nothing is collected here.
+    // The time was the UTC hour for the same reason. See lib/localDate.ts.
+    const pickupDate = nextPickupDateCompact();
+    const pickupTime = PICKUP_TIME_COMPACT;
 
     const upsDCISInner = upsDeliveryConfirmation(signatureOption);
     const upsDCIS = Object.keys(upsDCISInner).length > 0 ? upsDCISInner : null;

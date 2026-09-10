@@ -5,7 +5,7 @@ import { getFedexToken } from '@/lib/carrierTokens';
 import { fedexTransitToDays, formatDeliveryDate } from '@/lib/transit';
 import { normalizePostal } from '@/lib/postal';
 import { fedexCustomsClearanceDetail, fedexTotalCustomsValue } from '@/lib/shippingIntl';
-import { localDateStamp } from '@/lib/localDate';
+import { nextPickupDateStamp } from '@/lib/localDate';
 import type { CustomsInfo } from '@/app/admin/types/shippingIntl';
 
 // International FedEx rate quote. Separate from the domestic route so a change
@@ -42,9 +42,13 @@ export async function POST(req: NextRequest) {
     requestSummary = { originZip, destZip, destCountry, residential: Boolean(residential), weightLbs, lengthIn, widthIn, heightIn };
 
     const token = await getFedexToken();
-    // Store-local date (America/Chicago) — UTC would roll past midnight at 7 pm
-    // local and shift the committed delivery date. See lib/localDate.ts.
-    const today = localDateStamp(); // YYYY-MM-DD
+    // The day this parcel is actually COLLECTED, not merely labelled — the
+    // store closes at 6 pm and there are no weekend pickups, so a label
+    // written Friday evening does not move until Monday. FedEx counts its
+    // committed delivery date from this, and it must agree with what the UPS
+    // route sends or the compare screen promises two different days for the
+    // same parcel. See lib/localDate.ts.
+    const shipDate = nextPickupDateStamp(); // YYYY-MM-DD
 
     // FedEx REQUIRES customsClearanceDetail for international rating. The customs
     // step happens after rate selection, so synthesize a minimal declaration
@@ -87,7 +91,7 @@ export async function POST(req: NextRequest) {
           },
         },
         pickupType: 'USE_SCHEDULED_PICKUP',
-        shipDateStamp: today,
+        shipDateStamp: shipDate,
         // ACCOUNT + LIST returns both our negotiated rate and FedEx's published
         // retail — see the domestic route and carrier_rate_pricing_notes.md.
         rateRequestType: ['ACCOUNT', 'LIST'],

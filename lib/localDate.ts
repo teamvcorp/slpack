@@ -114,3 +114,103 @@ export function startOfLocalDayUtc(
   if (second !== first) ts = wallAsUtc - second;
   return new Date(ts);
 }
+
+// ──────────────────────── When a parcel actually ships ────────────────────────
+
+/**
+ * The store's daily carrier pickup, as a store-local hour on a 24-hour clock.
+ *
+ * UPS and FedEx both collect at closing. A parcel labelled after this has
+ * missed the day's collection and does not enter the carrier's network until
+ * the next pickup. That matters because carriers count the delivery commitment
+ * from the ship date they are given — quote a date the parcel cannot make and
+ * the customer is promised a delivery day that was never possible.
+ */
+export const PICKUP_CUTOFF_HOUR = 18;
+
+/** Pickup time as the local `HHmm` UPS expects. Collection is at the cutoff. */
+export const PICKUP_TIME_COMPACT = '1800';
+
+/** Wall-clock hour and minute in `timeZone` at `date`. Host-zone independent. */
+export function localTimeParts(
+  date: Date = new Date(),
+  timeZone: string = STORE_TIME_ZONE
+): { hour: number; minute: number } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      hourCycle: 'h23',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+      .formatToParts(date)
+      .filter((p) => p.type !== 'literal')
+      .map((p) => [p.type, Number(p.value)])
+  ) as Record<string, number>;
+  // Some ICU builds render midnight as 24 rather than 0 (see zoneOffsetMs).
+  return { hour: parts.hour === 24 ? 0 : parts.hour, minute: parts.minute };
+}
+
+/**
+ * Add whole days to a YYYY-MM-DD stamp, as pure calendar arithmetic.
+ *
+ * Anchored at noon UTC on purpose: a stamp is a calendar date with no zone, and
+ * stepping in 24-hour jumps from midday can never land on the wrong date the
+ * way midnight ± a DST hour can. Nothing here depends on the host zone.
+ */
+function addCalendarDays(stamp: string, days: number): string {
+  const [y, m, d] = stamp.split('-').map(Number);
+  const shifted = new Date(Date.UTC(y, m - 1, d, 12) + days * 86_400_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(
+    shifted.getUTCDate()
+  )}`;
+}
+
+/** True when a YYYY-MM-DD stamp falls on a Saturday or Sunday. */
+function isWeekendStamp(stamp: string): boolean {
+  const [y, m, d] = stamp.split('-').map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * The store-local calendar day a parcel handed over at `at` will actually be
+ * collected by the carrier — the date every rate and label request should send.
+ *
+ * WHY THIS IS NOT localDateStamp() (2026-09-10): the store closes at 6 pm and
+ * there are no weekend pickups, so "today" is the wrong answer twice over.
+ * A label written at 7 pm on a Friday does not move until MONDAY. Sending
+ * Friday makes the carrier quote a commitment counted from a pickup that never
+ * happened, and the customer is promised a delivery date the parcel cannot
+ * meet. The previous UPS code was worse still — it used the server's UTC clock,
+ * so that same Friday-evening label was stamped SATURDAY, a day the carrier
+ * does not collect here at all.
+ *
+ * Rules, in order: start from the store-local date; if the pickup cutoff has
+ * passed, move to the next day; then skip forward over Saturday and Sunday.
+ *
+ * KNOWN GAP: this does not know about holidays. A label written on Thanksgiving
+ * eve still reports the next weekday. Carriers generally absorb that in their
+ * own commitment, but if holiday quoting ever matters, this is the one function
+ * to teach a holiday table — every carrier path calls it.
+ */
+export function nextPickupDateStamp(
+  at: Date = new Date(),
+  timeZone: string = STORE_TIME_ZONE
+): string {
+  let stamp = localDateStamp(at, timeZone);
+  if (localTimeParts(at, timeZone).hour >= PICKUP_CUTOFF_HOUR) {
+    stamp = addCalendarDays(stamp, 1);
+  }
+  while (isWeekendStamp(stamp)) stamp = addCalendarDays(stamp, 1);
+  return stamp;
+}
+
+/** nextPickupDateStamp as the compact `YYYYMMDD` UPS expects. */
+export function nextPickupDateCompact(
+  at: Date = new Date(),
+  timeZone: string = STORE_TIME_ZONE
+): string {
+  return nextPickupDateStamp(at, timeZone).replace(/-/g, '');
+}

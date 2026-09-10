@@ -6,6 +6,7 @@
  */
 import type { CustomsInfo, Commodity, ReasonForExport, Incoterm } from '@/app/admin/types/shippingIntl';
 import { totalCustomsValue } from '@/app/admin/types/shippingIntl';
+import { localDateStamp } from '@/lib/localDate';
 
 const money = (n: number) => Number(Number(n || 0).toFixed(2));
 const lineTotal = (c: Commodity) => money(Number(c.quantity || 0) * Number(c.unitValueUSD || 0));
@@ -87,10 +88,19 @@ const UPS_REASON: Record<ReasonForExport, string> = {
   PERSONAL: 'PERSONAL EFFECTS',
 };
 
+/**
+ * Today's date in the store's zone, as UPS's compact `YYYYMMDD`.
+ *
+ * This is the commercial INVOICE date — the day the paperwork is raised — so
+ * it stays the actual current date and does NOT roll forward to the next
+ * pickup day the way a ship date does (see nextPickupDateStamp).
+ *
+ * It did use the server's clock, which on the UTC host post-dated every
+ * invoice raised after 7 pm Central by a day. Customs paperwork dated in the
+ * future is exactly the sort of thing that gets a shipment held.
+ */
 function yyyymmdd(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  return localDateStamp().replace(/-/g, '');
 }
 
 /**

@@ -1,4 +1,4 @@
-# Reporting — the two bugs that emptied the Reports page (fixed 2026-09-09)
+# Reporting and ship dates — clock and null bugs (fixed 2026-09-09/10)
 
 Staff report: "it will load today's report, but when we change date it says
 application error." Two unrelated faults, both of which only showed on the
@@ -197,21 +197,80 @@ are served by one index scan with no in-memory sort.
 
 ---
 
-## Still outstanding — the same clock bug, on UPS
+## Ship dates: the day a parcel is actually collected (fixed 2026-09-10)
 
-`lib/localDate.ts` was written to fix server-local date math on carrier
-requests, but three UPS paths were missed in that sweep and are still wrong:
+Follow-on from the report fix. The store closes at 6 pm and UPS/FedEx collect
+at closing; there are no weekend pickups. Carriers count their delivery
+commitment from the ship date they are given, so that date must be a day a
+pickup really happens.
 
-- `app/api/shipping/ups/route.ts` (~line 65)
-- `app/api/shipping/intl/ups/route.ts` (~line 60)
-- `yyyymmdd()` in `lib/shippingIntl.ts` (~line 91)
+Three bugs, compounding:
 
-All build the carrier date stamp from server-local getters, so **every UPS rate
-requested after 7 pm CT sends tomorrow's pickup date** and gets transit
-commitments for the wrong day. The two rate routes also send `pickupTime` as a
-UTC hour. This is the FedEx Saturday bug (see `saturday_delivery_notes.md`)
-reproduced on UPS. The fix is mechanical but it changes carrier quoting, so it
-needs its own commit and its own sandbox before/after.
+1. **UPS used the server's clock.** `app/api/shipping/ups/route.ts`,
+   `app/api/shipping/intl/ups/route.ts` and `yyyymmdd()` in
+   `lib/shippingIntl.ts` built the stamp from `getFullYear/getMonth/getDate`.
+   On the UTC host that rolled to tomorrow after 7 pm Central. The UPS rate
+   routes also sent `pickupTime` as the **UTC** hour.
+2. **On a Friday evening that produced SATURDAY** — a day nothing is collected
+   here. UPS then quoted transit from a pickup that never happens.
+3. **Even the correct local date was wrong after closing.** A parcel labelled
+   at 7 pm Friday does not move until **Monday**. `localDateStamp()` alone
+   would have said Friday.
+
+`nextPickupDateStamp()` in `lib/localDate.ts` is now the single answer: start
+from the store-local date, advance a day if the 6 pm cutoff has passed, then
+skip Saturday and Sunday. `PICKUP_CUTOFF_HOUR` (18) and `PICKUP_TIME_COMPACT`
+('1800') are the tunables — pickup time is now a constant 1800 rather than the
+current clock, because collection is at closing regardless of when the label
+was printed.
+
+Verified (identical under host TZ of UTC, America/Chicago and Asia/Tokyo):
+
+| labelled at (store time) | ships |
+|---|---|
+| Thu 17:59 | same day |
+| Thu 18:00 (cutoff) | Fri |
+| **Fri 19:00** | **Mon** (old UPS code said Sat) |
+| Sat 12:00 | Mon |
+| Sun 20:00 | Mon |
+| Sat 31 Oct | Mon 2 Nov (across the DST fallback) |
+
+**FedEx was changed too, on purpose.** Its four paths already used
+`localDateStamp()`, so only bug 3 applied — but the compare screen shows UPS
+and FedEx side by side. Leaving FedEx on "today" after closing would have had
+the two carriers promising different delivery days for the same parcel, and
+staff picking the wrong one. Consistency here is a correctness requirement, not
+tidiness.
+
+The Saturday-delivery feature is unaffected: `isSaturdayDate` tests the
+carrier's **arrival** date, not the pickup date. Ask before the Friday cutoff
+and Saturday delivery is offered as usual; ask after it, and the parcel ships
+Monday and Saturday correctly disappears.
+
+### Verification status — read before trusting FedEx
+
+- **UPS: verified live** against the sandbox. Thu 07:59 CT → ships same day,
+  Next Day Air arrives Fri, the Saturday variant arrives Sat. 7 services, 200.
+- **FedEx: NOT verified live.** The FedEx sandbox was returning
+  `SERVICE.UNAVAILABLE.ERROR` (503) throughout. Confirmed pre-existing by
+  stashing the change and re-testing: the unmodified code 503s identically, so
+  this is FedEx's infrastructure, not the payload. The FedEx paths typecheck
+  and build, and the change is a one-line swap of an already-working helper for
+  another — but **re-run a FedEx rate once their sandbox is back.**
+- Intl UPS/FedEx rate paths were not exercised live (they need a full customs
+  payload); same one-line swap, typechecked only.
+
+### Left alone deliberately
+
+- `app/api/shipping/usps/label/route.ts` still uses `localDateStamp()`. USPS
+  labels carry a mailing date and postdating rules differ; changing it needs
+  its own check.
+- `app/api/shipping/dhl/route.ts` hardcodes "tomorrow" and does not skip
+  weekends. Its own oddity, DHL is not in daily use.
+- `app/api/shipping/fedex/pickup/route.ts` compares against `localDateStamp()`
+  to decide SAME_DAY vs FUTURE_DAY — that must stay the real current date.
+- Holidays. `nextPickupDateStamp` skips weekends only. Every carrier path calls
+  it, so it is the one place to add a holiday table if that ever matters.
 
 ## Removed: `/api/register/sales`
 

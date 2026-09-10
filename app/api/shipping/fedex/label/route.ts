@@ -4,7 +4,7 @@ import { getFedexToken } from '@/lib/carrierTokens';
 import { SITE } from '@/lib/siteConfig';
 import { normalizePostal } from '@/lib/postal';
 import { normalizeSignature, fedexSignatureBlock } from '@/lib/signatureOption';
-import { localDateStamp } from '@/lib/localDate';
+import { nextPickupDateStamp } from '@/lib/localDate';
 import { fedexActualCostUSD } from '@/lib/carrierCost';
 
 const ROUTE = 'shipping/fedex/label';
@@ -75,10 +75,13 @@ export async function POST(req: NextRequest) {
 
     const token = await getFedexToken();
     const accountNumber = process.env.FEDEX_ACCOUNT_NUMBER;
-    // Store-local date — CRITICAL for the delivery commitment: with UTC, a
-    // 7 pm Friday label was stamped *Saturday*, so FedEx committed to Monday
-    // even for Saturday-delivery shipments. See lib/localDate.ts.
-    const today = localDateStamp(); // YYYY-MM-DD
+    // The day this parcel is actually COLLECTED, not merely labelled — the
+    // store closes at 6 pm and there are no weekend pickups, so a label
+    // written Friday evening does not move until Monday. FedEx counts its
+    // committed delivery date from this, and it must agree with what the UPS
+    // route sends or the compare screen promises two different days for the
+    // same parcel. See lib/localDate.ts.
+    const shipDate = nextPickupDateStamp(); // YYYY-MM-DD
 
     // Build declared value object for insurance
     const declaredValue =
@@ -130,7 +133,7 @@ export async function POST(req: NextRequest) {
             },
           },
         ],
-        shipDatestamp: today,
+        shipDatestamp: shipDate,
         serviceType: String(serviceCode),
         packagingType: fedexPackaging,
         pickupType: 'USE_SCHEDULED_PICKUP',
