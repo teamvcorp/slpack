@@ -29,6 +29,9 @@ const PUBLIC_PATHS = new Set<string>([
   '/api/print-order/upload',
   '/api/identity/webhook',
   '/api/webhooks/stripe',
+  // Sinch Fax inbound + status webhook — self-guarded by a ?token= secret
+  // (SINCH_FAX_WEBHOOK_TOKEN) and re-fetches the fax from Sinch by id.
+  '/api/webhooks/fax',
 ]);
 
 export async function proxy(req: NextRequest) {

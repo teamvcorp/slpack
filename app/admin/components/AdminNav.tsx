@@ -12,6 +12,7 @@ const NAV = [
   { label: 'International', href: '/admin/shipping-intl' },
   { label: 'Reports', href: '/admin/log' },
   { label: 'Pickup', href: '/admin/pickup' },
+  { label: 'Fax', href: '/admin/fax' },
   { label: 'Partners', href: '/admin/partners' },
   { label: 'Settings', href: '/admin/settings' },
 ];

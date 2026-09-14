@@ -363,3 +363,19 @@ quote it came from is TTL'd away in 30 minutes.
   on lookup so the invoice join is reliable. Index: `partnerShipments.tracking`.
 - Partner-facing history stays retail-only — cost/adjustment fields are never in
   the partner projection.
+
+### Admin Fax (Sinch) — collection + indexes (added 2026-09-14)
+
+`slpack.faxes` mirrors Sinch faxes (outgoing + incoming) so history outlives
+Sinch's 13-month retention and supports unread badges. PDFs live in Vercel Blob;
+`blobUrl` is server-only (excluded from the list projection), served only via the
+admin-gated `/api/admin/fax/[id]/file` route. Full write-up: `sinch_fax_notes.md`.
+
+```js
+use slpack
+db.faxes.createIndex({ sinchId: 1 }, { unique: true, name: 'sinchId_unique' })
+db.faxes.createIndex({ direction: 1, createdAt: -1 }, { name: 'direction_recent' })
+```
+
+Idempotent upsert keyed on `sinchId` (webhook retries are no-ops); the descending
+`direction_recent` index backs the Inbox/Sent list sort.

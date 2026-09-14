@@ -149,3 +149,27 @@ walled off from the counter. Contract: `PARTNER_API.md`. Ops: `reporting_notes.m
   failure after payment is recorded `needs_review` and the shop is notified rather
   than released for an automated retry (which could double-charge a carrier label).
   Retries are idempotent on `quoteId`.
+
+---
+
+## Admin Fax (Sinch) — env + webhook posture (added 2026-09-14)
+
+Send/receive faxes from the admin via the Sinch Fax API. Isolated/additive; inert
+until the SINCH_* vars are set. Full notes: `sinch_fax_notes.md`.
+
+- **Env (Vercel + .env.local):** `SINCH_PROJECT_ID`, `SINCH_KEY_ID`,
+  `SINCH_KEY_SECRET` (Basic auth), `SINCH_FAX_NUMBER` (the `from`),
+  `SINCH_FAX_WEBHOOK_TOKEN` (webhook guard). Reuses `BLOB_READ_WRITE_TOKEN`,
+  `RESEND_API_KEY`, `NEXT_PUBLIC_BASE_URL`.
+- **Send route** fails closed 503 until the SINCH_* creds + fax number exist;
+  rate-limited per IP (`faxsend:`). PDF capped at 4 MB (serverless body limit).
+- **Webhook** `/api/webhooks/fax` is PUBLIC (allowlisted in proxy.ts) but guarded
+  by an unguessable `?token=` matching `SINCH_FAX_WEBHOOK_TOKEN` (fail-closed 400
+  when unset). It treats the payload as a TRIGGER only — re-fetches the fax from
+  Sinch by id, so a spoofed call with a bogus id 404s and does nothing. Inbound
+  `from`/`errorMessage` are escaped before emailing. Always returns 200 (no retry
+  storm). Sinch notification IPs (34.232.249.173 / 44.226.9.173) may be allowlisted
+  later as defense-in-depth.
+- **PDF privacy:** the Blob URL is never sent to the browser; PDFs stream through
+  the admin-gated `/api/admin/fax/[id]/file` route (same posture as withholding
+  `labelBase64` from the shipment list).
