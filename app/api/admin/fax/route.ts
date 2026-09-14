@@ -86,7 +86,6 @@ export async function POST(req: NextRequest) {
   }
 
   const bytes = Buffer.from(await file.arrayBuffer());
-  const contentBase64 = bytes.toString('base64');
 
   const base = process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000';
   const token = process.env.SINCH_FAX_WEBHOOK_TOKEN;
@@ -94,7 +93,7 @@ export async function POST(req: NextRequest) {
 
   let fax;
   try {
-    fax = await sendFax({ to, contentBase64, headerText, callbackUrl });
+    fax = await sendFax({ to, file: bytes, filename: file.name || 'fax.pdf', headerText, callbackUrl });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Fax send failed';
     return NextResponse.json({ error: `Fax could not be sent — ${message}` }, { status: 502 });

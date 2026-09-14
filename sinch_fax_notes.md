@@ -9,8 +9,11 @@ shipping/register/reports. Feature is inert until the SINCH_* env vars are set.
 - **Base:** `https://fax.api.sinch.com/v3/projects/{SINCH_PROJECT_ID}`
 - **Auth:** HTTP **Basic** `SINCH_KEY_ID:SINCH_KEY_SECRET` (what we use). OAuth2
   bearer (`https://auth.sinch.com/oauth2/token`) is a later hardening option.
-- **Send:** `POST /faxes` — `{ to, contentBase64 | contentUrl:[…], from,
-  headerText?, callbackUrl, callbackUrlContentType:'application/json' }`.
+- **Send:** `POST /faxes` — **multipart/form-data** with a `file` part plus form
+  fields `to`, `from`, `headerText?`, `callbackUrl?`, `callbackUrlContentType`.
+  ⚠️ A JSON `contentBase64` body is REJECTED (`400 "must submit at least one file
+  or content URL"`) — verified against the live API. `contentUrl:[…]` (HTTPS URLs
+  Sinch fetches) is the JSON alternative.
 - **List:** `GET /faxes?direction=INBOUND|OUTBOUND&status=&createTime=&page=&pageSize=`.
 - **Get one:** `GET /faxes/{id}`. **Download:** `GET /faxes/{id}/file.pdf`.
 - **Fax object:** `id` (ULID), `direction`, `from`, `to`, `status`
@@ -63,13 +66,27 @@ shipping/register/reports. Feature is inert until the SINCH_* env vars are set.
    `db.faxes.createIndex({ sinchId:1 },{ unique:true })`,
    `db.faxes.createIndex({ direction:1, createdAt:-1 })`.
 
-## To verify once the account is active
+## VERIFIED LIVE (2026-09-14)
 
-- Probe `lib/sinchFax` with a small Node script (like the USPS/partner probes) to
-  confirm Basic auth + `sendFax` (esp. `contentBase64` shape) + `getFax`/`getFaxPdf`.
-- Send to a Sinch test number → appears in **Sent**, status → COMPLETED, PDF opens.
-- Trigger inbound → webhook → email → **Inbox** (unread) → PDF → opening marks read.
+- **Auth** (Basic key id/secret) works for read + write. List shape confirmed
+  `{ faxes:[…], page, pageSize, totalItems, totalPages }`.
+- **Send** works via **multipart** (fixed in `lib/sinchFax.sendFax`): a real
+  1-page self-fax went `IN_PROGRESS → COMPLETED`, 1 page, **$0.045 USD**.
+- **`getFaxPdf`** works: `GET /faxes/{id}/file.pdf` → 200, valid `%PDF` (~23 KB
+  rendered).
+- **Number setup gotcha (this cost hours):** the `from` must be a number with
+  **Fax** enabled AND assigned to a Fax **service**. In the Sinch dashboard:
+  Numbers → the number → **Voice Configuration → enable Fax**, then Fax → Services →
+  assign it. The Numbers API `capability` array may still read `[SMS, VOICE]` even
+  after Fax is enabled — don't trust it; the authoritative check is a send. Until
+  Fax is enabled, sends 422 with "the number you set as from does not belong to you".
+- **Fax service** "Default Service" exists with `incomingWebhookUrl` pointing at
+  our prod webhook. **Inbound still needs the fax feature DEPLOYED to prod** (the
+  webhook route must exist at www.slpacknship.com) before an incoming fax is
+  captured — until then Sinch's callback 404s.
 
-⚠️ **Unverified against the live API (account hold):** the exact `sendFax` body
-(`contentBase64` as a bare string vs. array/object) and the webhook JSON envelope
-are per the OpenAPI spec but not yet round-tripped. Probe before relying on it.
+## Still to verify (needs prod deploy)
+
+- Inbound: fax the number → Sinch `INCOMING_FAX` → our prod webhook → archive +
+  email → **Inbox** (unread) → PDF → opening marks read.
+- The full admin route round-trip (UI send → Blob archive → Mongo mirror).

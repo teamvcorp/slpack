@@ -70,28 +70,41 @@ export function faxFromNumber(): string | undefined {
 }
 
 /**
- * Send a fax. `contentBase64` is the raw base64 of a single PDF. Returns the
- * created fax (status starts PENDING/IN_PROGRESS; final status arrives via the
- * FAX_COMPLETED webhook).
+ * Send a fax. Sinch expects **multipart/form-data** with a `file` part — verified
+ * against the live API (a JSON `contentBase64` body is rejected with "must submit
+ * at least one file or content URL"). Returns the created fax (status starts
+ * PENDING/IN_PROGRESS; the final status arrives via the FAX_COMPLETED webhook).
  */
 export async function sendFax(input: {
   to: string;
-  contentBase64: string;
+  file: Buffer;
+  filename?: string;
+  contentType?: string;
   headerText?: string;
   callbackUrl?: string;
 }): Promise<SinchFax> {
   requireConfig();
-  const body: Record<string, unknown> = {
-    to: input.to,
-    contentBase64: input.contentBase64,
-    ...(faxFromNumber() ? { from: faxFromNumber() } : {}),
-    ...(input.headerText ? { headerText: input.headerText.slice(0, 50) } : {}),
-    ...(input.callbackUrl ? { callbackUrl: input.callbackUrl, callbackUrlContentType: 'application/json' } : {}),
-  };
+  const form = new FormData();
+  form.set('to', input.to);
+  const from = faxFromNumber();
+  if (from) form.set('from', from);
+  if (input.headerText) form.set('headerText', input.headerText.slice(0, 50));
+  if (input.callbackUrl) {
+    form.set('callbackUrl', input.callbackUrl);
+    form.set('callbackUrlContentType', 'application/json');
+  }
+  form.set(
+    'file',
+    // new Uint8Array(...) gives a Blob-safe ArrayBuffer-backed view (a bare Buffer
+    // trips TS's BufferSource typing under strict lib settings).
+    new Blob([new Uint8Array(input.file)], { type: input.contentType ?? 'application/pdf' }),
+    input.filename ?? 'fax.pdf'
+  );
+  // No explicit Content-Type header — FormData sets the multipart boundary.
   const res = await fetch(`${base()}/faxes`, {
     method: 'POST',
-    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: { Authorization: authHeader() },
+    body: form,
   });
   const text = await res.text();
   if (!res.ok) throw new SinchApiError(res.status, text.slice(0, 1000));
