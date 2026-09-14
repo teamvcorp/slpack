@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SITE } from '@/lib/siteConfig';
 
 /**
  * Admin → Fax. Send a fax (upload a PDF) and browse the local archive of
@@ -40,6 +41,61 @@ function statusPill(status: FaxEntry['status']) {
   };
   const label = status === 'IN_PROGRESS' ? 'Sending' : status.charAt(0) + status.slice(1).toLowerCase();
   return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${map[status]}`}>{label}</span>;
+}
+
+const esc = (s: unknown) =>
+  String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
+
+/**
+ * Open a print-friendly fax transmission confirmation (the paper slip a fax
+ * machine prints). Works on any printer via the browser print dialog. Every value
+ * is escaped — an inbound `from` is untrusted.
+ */
+function printConfirmation(f: FaxEntry) {
+  const w = window.open('', '_blank', 'width=460,height=680');
+  if (!w) return;
+  const outbound = f.direction === 'OUTBOUND';
+  const title = outbound ? 'Fax Transmission Confirmation' : 'Fax Received Confirmation';
+  const statusLabel =
+    f.status === 'COMPLETED' ? (outbound ? 'Delivered' : 'Received') : f.status === 'FAILED' ? 'Failed' : 'In progress';
+  const rows: Array<[string, string]> = [
+    ['Date', new Date(f.createdAt).toLocaleString()],
+    [outbound ? 'To' : 'From', outbound ? (f.to || '—') : (f.from || 'unknown')],
+    [outbound ? 'From' : 'To', outbound ? (f.from || SITE.telephoneDisplay) : (f.to || '—')],
+    ['Pages', String(f.numberOfPages ?? '—')],
+    ['Status', statusLabel],
+    ['Confirmation #', f.sinchId],
+  ];
+  if (f.headerText) rows.push(['Header', f.headerText]);
+  if (f.completedAt) rows.push(['Completed', new Date(f.completedAt).toLocaleString()]);
+  if (f.status === 'FAILED' && f.errorMessage) rows.push(['Error', f.errorMessage]);
+
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+    <style>
+      *{box-sizing:border-box} body{font-family:system-ui,Segoe UI,Arial,sans-serif;color:#111;margin:0;padding:24px}
+      .wrap{max-width:420px;margin:0 auto}
+      h1{font-size:15px;margin:0 0 2px;letter-spacing:.04em;text-transform:uppercase}
+      .sub{font-size:12px;color:#555;margin:0 0 2px}
+      h2{font-size:13px;margin:16px 0 8px;padding-top:12px;border-top:2px solid #111;text-transform:uppercase;letter-spacing:.06em}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      td{padding:5px 0;vertical-align:top}
+      td.k{color:#666;width:130px} td.v{text-align:right;font-weight:600;word-break:break-all}
+      .foot{margin-top:16px;padding-top:10px;border-top:1px solid #ccc;font-size:11px;color:#777;text-align:center}
+      @media print{body{padding:0}}
+    </style></head><body><div class="wrap">
+      <h1>${esc(SITE.name)}</h1>
+      <p class="sub">${esc(SITE.address.street)}, ${esc(SITE.address.city)}, ${esc(SITE.address.region)} ${esc(SITE.address.postalCode)}</p>
+      <p class="sub">${esc(SITE.telephoneDisplay)}</p>
+      <h2>${esc(title)}</h2>
+      <table><tbody>
+        ${rows.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td class="v">${esc(v)}</td></tr>`).join('')}
+      </tbody></table>
+      <p class="foot">Printed ${esc(new Date().toLocaleString())}</p>
+    </div></body></html>`);
+  w.document.close();
+  w.focus();
+  // Give the new document a tick to lay out before invoking print.
+  setTimeout(() => { try { w.print(); } catch { /* user can print manually */ } }, 250);
 }
 
 export default function FaxPage() {
@@ -215,8 +271,11 @@ export default function FaxPage() {
                           <span className="ml-2 text-[11px] text-red">{f.errorMessage}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <button type="button" onClick={() => viewFax(f)} className={btnGhost}>View PDF</button>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => viewFax(f)} className={btnGhost}>View PDF</button>
+                          <button type="button" onClick={() => printConfirmation(f)} className={btnGhost}>Print confirmation</button>
+                        </div>
                       </td>
                     </tr>
                   );
