@@ -24,6 +24,67 @@ shipping/register/reports. Feature is inert until the SINCH_* env vars are set.
   (dashboard); outbound uses the per-send `callbackUrl`. Notification IPs
   **34.232.249.173 / 44.226.9.173**; up to 16 retries w/ backoff. Media retained 13 months.
 
+## Verified request/response reference (copy-paste; live-tested 2026-09-14)
+
+`FAXBASE = https://fax.api.sinch.com/v3/projects/$SINCH_PROJECT_ID`
+`AUTH = Basic base64(SINCH_KEY_ID:SINCH_KEY_SECRET)`  (header `Authorization: $AUTH`)
+
+**Send (multipart — the ONLY shape that works; JSON contentBase64 is rejected):**
+```
+POST $FAXBASE/faxes            # Authorization only; DO NOT set Content-Type (FormData sets the boundary)
+form fields: to=+1..., from=+1..., headerText=..., callbackUrl=..., callbackUrlContentType=application/json
+file part:   file=@document.pdf  (application/pdf; also DOC/DOCX/TIF/JPG/TXT/PNG accepted)
+-> 200 { "id":"01M2GW...", "direction":"OUTBOUND", "status":"IN_PROGRESS", "from":"+1...", "to":"+1..." }
+```
+Node: `const fd=new FormData(); fd.set('to',to); fd.set('from',from); fd.set('file', new Blob([new Uint8Array(buf)],{type:'application/pdf'}),'fax.pdf'); fetch(url,{method:'POST',headers:{Authorization:AUTH},body:fd})`
+
+**Get one (poll for final status):**
+```
+GET $FAXBASE/faxes/{id}
+-> 200 { id, direction, status:"COMPLETED", from, to, numberOfPages:1,
+         createTime, completedTime, price:{amount:"0.045",currencyCode:"USD"}, hasFile:true }
+```
+Status flow: `PENDING → IN_PROGRESS → COMPLETED | FAILED` (a 1-page domestic fax completed in ~5 s at $0.045).
+
+**Download the rendered pages:** `GET $FAXBASE/faxes/{id}/file.pdf` → 200 `application/pdf` (~23 KB/page).
+
+**List:** `GET $FAXBASE/faxes?direction=INBOUND|OUTBOUND&status=&page=0&pageSize=50`
+→ `{ faxes:[…], page, pageSize, totalItems, totalPages }` (Sinch holds BOTH directions).
+
+**Delete stored content early:** `DELETE $FAXBASE/faxes/{id}/file` (else auto-purged at 13 months).
+
+**Webhook payloads** (POST to your callback; `event` distinguishes them):
+```
+{ "event":"INCOMING_FAX",  "eventTime":"…", "fax":{ id, direction:"INBOUND",  from, to, numberOfPages, status } }
+{ "event":"FAX_COMPLETED", "eventTime":"…", "fax":{ id, direction:"OUTBOUND", status, … } }
+```
+JSON when `callbackUrlContentType=application/json` (else multipart with the PDF attached). We treat it as a
+trigger and re-fetch `GET /faxes/{id}` — so the exact envelope doesn't need trusting.
+
+## Diagnostic endpoints (numbers + services)
+
+- **Numbers owned by the project:** `GET https://numbers.api.sinch.com/v1/projects/$PROJECT/activeNumbers`
+  → `{ activeNumbers:[{ phoneNumber, capability:["SMS","VOICE"], regionCode, money:{amount,currencyCode}, … }], totalSize }`.
+  ⚠️ `capability` does **not** list FAX even when Fax is enabled — it is NOT a reliable fax check.
+- **Fax services:** `GET $FAXBASE/services` → `{ services:[{ id, name, incomingWebhookUrl }] }`.
+  A new account's default is empty until you configure a service; ours is "Default Service" with
+  `incomingWebhookUrl = https://www.slpacknship.com/api/webhooks/fax?token=…`.
+- **Available numbers to rent:** `GET https://numbers.api.sinch.com/v1/projects/$PROJECT/availableNumbers?regionCode=US&type=LOCAL`
+  (a `capabilities=FAX` filter is **invalid → 400**; fax is enabled on the number's Voice config, not a rentable capability).
+
+## Supported document formats
+
+PDF, DOC, DOCX, TIF, JPG, TXT, PNG, plus HTML and a fetchable URL (`contentUrl`). We send PDF only.
+
+## Error catalog (seen live)
+
+| HTTP | message | cause / fix |
+|---|---|---|
+| 422 | "the number you set as from does not belong to you" | `from` number lacks Fax / isn't on a Fax service → enable Fax on the number's Voice config + assign to the service |
+| 400 | "You must submit at least one file or content URL" | sent JSON `contentBase64` → must be multipart `file` (or `contentUrl`) |
+| 422 | "phone number (to) is required" | missing `to` |
+| 422 | "The destination country or number type … is not permitted" | invalid/blocked destination (e.g. 555 test numbers) |
+
 ## slpack implementation
 
 - **`lib/sinchFax.ts`** — Basic-auth client: `sinchConfigured()`, `faxFromNumber()`,
@@ -34,8 +95,9 @@ shipping/register/reports. Feature is inert until the SINCH_* env vars are set.
   `getFaxBlobUrl()`, `markFaxRead()`, `countUnreadInbound()`. **`blobUrl` is
   server-only** — excluded from `FAX_LIST_PROJECTION`, never sent to the browser.
 - **`app/api/admin/fax/route.ts`** — GET list (`?direction=`, `{entries,unread}`) +
-  POST send (multipart `to`+`file`+`headerText`; ≤4 MB PDF; base64→Sinch; archive to
-  Blob; `callbackUrl` = `${NEXT_PUBLIC_BASE_URL}/api/webhooks/fax?token=…`).
+  POST send (multipart `to`+`file`+`headerText`; ≤4 MB PDF; forwards the file to
+  Sinch as multipart; archives to Blob; `callbackUrl` =
+  `${NEXT_PUBLIC_BASE_URL}/api/webhooks/fax?token=…`).
 - **`app/api/admin/fax/[id]/file/route.ts`** — streams the PDF (Blob, else Sinch).
 - **`app/api/admin/fax/[id]/route.ts`** — PATCH mark inbound read.
 - **`app/api/webhooks/fax/route.ts`** — PUBLIC, `?token=`-guarded; re-fetches the fax
