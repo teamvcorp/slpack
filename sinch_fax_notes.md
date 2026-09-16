@@ -147,6 +147,33 @@ PDF, DOC, DOCX, TIF, JPG, TXT, PNG, plus HTML and a fetchable URL (`contentUrl`)
   webhook route must exist at www.slpacknship.com) before an incoming fax is
   captured — until then Sinch's callback 404s.
 
+## Number change — live fax number issued (2026-09-16)
+
+The temporary test number **+12055799223 is gone**; the account's only active
+number is now **+12082474489** (`SINCH_FAX_NUMBER`). Verified via
+`GET numbers.api.sinch.com/v1/projects/$P/activeNumbers`:
+`voiceConfiguration.type = "FAX"`, `serviceId = 01M2GV60DDEZRBQ9FEYVPHRRD7`, and the
+Default Service's `defaultFrom` is already the new number. Fax is enabled and assigned
+— no dashboard work was needed this time.
+
+Two defects surfaced while bringing it online (both fixed in `cf3a20f`):
+
+1. **The service sends `multipart/form-data`, NOT JSON.** `GET $FAXBASE/services`
+   reports `webhookContentType: "multipart/form-data"` — the earlier note claiming the
+   inbound callback was set to JSON was wrong. Our webhook called `req.json()`, which
+   throws on multipart, and the catch returned 200 without archiving: **an inbound fax
+   was acknowledged and silently dropped** (no Mongo row, no Blob, no email, empty
+   Inbox). `readTrigger()` now parses JSON, multipart AND urlencoded, extracting only
+   `{ event, id }`; the fax is still re-fetched from Sinch, so the body stays untrusted.
+   Handling both encodings means the dashboard setting can drift without breaking receive.
+   ⚠️ Note the asymmetry: the per-send `callbackUrl` uses the JSON content type we set
+   ourselves, while the *service's* inbound callback uses the dashboard setting — so both
+   encodings really do arrive at the same URL.
+2. **`SINCH_FAX_NUMBER` had no leading `+`.** Sinch holds numbers in E.164 and rejects a
+   bare `1208…` as `from` with the 422 "the number you set as from does not belong to
+   you" — the same error that cost hours on first setup. `toE164()` in `lib/sinchFax.ts`
+   normalizes at the source; the admin route's duplicate `normalizeTo()` now reuses it.
+
 ## Still to verify (needs prod deploy)
 
 - Inbound: fax the number → Sinch `INCOMING_FAX` → our prod webhook → archive +
