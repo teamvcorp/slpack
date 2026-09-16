@@ -174,7 +174,19 @@ Two defects surfaced while bringing it online (both fixed in `cf3a20f`):
    you" — the same error that cost hours on first setup. `toE164()` in `lib/sinchFax.ts`
    normalizes at the source; the admin route's duplicate `normalizeTo()` now reuses it.
 
-## Still to verify (needs prod deploy)
+## FULL ROUND-TRIP VERIFIED (2026-09-16)
+
+Self-fax on the live number after deploying `cf3a20f` — **both legs COMPLETED**:
+`OUTBOUND 01M2PA8RJ57FE4S7JQ80M8KXJB` and `INBOUND 01M2PA8T9C022MQWJBZPSBKQEF`,
+`+12082474489 → +12082474489`, 1 page, $0.045 each, `file.pdf` → 200 valid PDF.
+The inbound callback arrived as **`multipart/form-data`** — the path that was
+silently dropping faxes — and produced the Inbox row, so the `readTrigger()` fix is
+proven live, as is `toE164()` (the send would have 422'd otherwise).
+
+**Self-faxing is the standard end-to-end test:** one send exercises send → Sinch →
+inbound webhook → Blob archive → email → Inbox, for ~$0.09 total (billed both ways).
+
+## Previously pending (now covered by the run above)
 
 - Inbound: fax the number → Sinch `INCOMING_FAX` → our prod webhook → archive +
   email → **Inbox** (unread) → PDF → opening marks read.
