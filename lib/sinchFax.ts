@@ -64,9 +64,25 @@ function requireConfig(): void {
   if (!sinchConfigured()) throw new SinchNotConfigured();
 }
 
-/** The shop's fax-enabled Sinch number, used as the outbound `from`. */
+/**
+ * Normalize a dialed number to E.164 (`+` then digits). Sinch stores and compares
+ * its own numbers in E.164, and a bare `12085551234` as `from` is rejected with
+ * 422 "the number you set as from does not belong to you" — so normalize rather
+ * than trusting whoever typed the env var or the form field.
+ */
+export function toE164(raw: string): string {
+  const trimmed = String(raw || '').trim();
+  const plus = trimmed.startsWith('+');
+  const digits = trimmed.replace(/\D/g, '');
+  if (plus) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`; // bare US 10-digit
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return digits ? `+${digits}` : '';
+}
+
+/** The shop's fax-enabled Sinch number, used as the outbound `from` (E.164). */
 export function faxFromNumber(): string | undefined {
-  return process.env.SINCH_FAX_NUMBER || undefined;
+  return toE164(process.env.SINCH_FAX_NUMBER ?? '') || undefined;
 }
 
 /**

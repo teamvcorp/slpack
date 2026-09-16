@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
 import { clientIp, hit } from '@/lib/rateLimit';
-import { sinchConfigured, sendFax, faxFromNumber } from '@/lib/sinchFax';
+import { sinchConfigured, sendFax, faxFromNumber, toE164 } from '@/lib/sinchFax';
 import { upsertFax, listFaxes, countUnreadInbound, type FaxDirection } from '@/lib/faxLog';
 
 /**
@@ -18,17 +18,6 @@ export const runtime = 'nodejs';
 const MAX_FAX_BYTES = 4 * 1024 * 1024;
 const SEND_LIMIT = 30;
 const WINDOW_MS = 10 * 60 * 1000;
-
-/** Normalize a dialed number to E.164-ish (+digits). Best-effort; Sinch validates. */
-function normalizeTo(raw: string): string {
-  const trimmed = String(raw || '').trim();
-  const plus = trimmed.startsWith('+');
-  const digits = trimmed.replace(/\D/g, '');
-  if (plus) return `+${digits}`;
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  return digits ? `+${digits}` : '';
-}
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -65,7 +54,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Expected a multipart form (to + file).' }, { status: 400 });
   }
 
-  const to = normalizeTo(String(form.get('to') ?? ''));
+  const to = toE164(String(form.get('to') ?? ''));
   const headerText = String(form.get('headerText') ?? '').trim().slice(0, 50) || undefined;
   const file = form.get('file');
 

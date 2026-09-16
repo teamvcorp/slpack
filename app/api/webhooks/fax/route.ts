@@ -37,18 +37,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 400 });
   }
 
-  let payload: Record<string, unknown> = {};
-  try {
-    payload = (await req.json()) as Record<string, unknown>;
-  } catch {
-    // Non-JSON (e.g. a multipart variant) — acknowledge; we re-fetch by id below.
-    return NextResponse.json({ received: true });
-  }
-
-  const event = String(payload.event ?? '');
-  const faxHint = (payload.fax ?? {}) as { id?: string; direction?: string };
-  const id = String(faxHint.id ?? '');
-  if (!id) return NextResponse.json({ received: true });
+  // Sinch sends EITHER JSON or multipart/form-data depending on the Fax service's
+  // `webhookContentType` (a dashboard setting that can drift out from under us), so
+  // parse both. We only need the event name + fax id — everything else is re-fetched
+  // from Sinch below, so a malformed or spoofed body can at worst cost one 404.
+  const trigger = await readTrigger(req);
+  if (!trigger.id) return NextResponse.json({ received: true });
+  const { event, id } = trigger;
 
   try {
     if (!sinchConfigured()) return NextResponse.json({ received: true });
@@ -111,6 +106,47 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ received: true });
+}
+
+/**
+ * Pull `{ event, id }` out of a Sinch callback in either encoding.
+ *
+ * JSON:      { event, eventTime, fax: { id, … } }
+ * multipart: flat form fields (`event`, `id`/`faxId`, sometimes a `fax` JSON part,
+ *            plus the rendered PDF, which we ignore — we re-download it ourselves).
+ * Untrusted input: values are only ever used as a lookup key against Sinch.
+ */
+async function readTrigger(req: NextRequest): Promise<{ event: string; id: string }> {
+  const ctype = req.headers.get('content-type') ?? '';
+  try {
+    if (ctype.includes('application/json')) {
+      const payload = (await req.json()) as { event?: unknown; fax?: { id?: unknown } };
+      return { event: String(payload.event ?? ''), id: String(payload.fax?.id ?? '') };
+    }
+    if (ctype.includes('multipart/form-data') || ctype.includes('application/x-www-form-urlencoded')) {
+      const form = await req.formData();
+      const str = (k: string) => {
+        const v = form.get(k);
+        return typeof v === 'string' ? v : '';
+      };
+      let id = str('id') || str('faxId') || str('fax_id');
+      // Some services nest the fax object as a JSON string part.
+      if (!id) {
+        const nested = str('fax');
+        if (nested.trim().startsWith('{')) {
+          try {
+            id = String((JSON.parse(nested) as { id?: unknown }).id ?? '');
+          } catch {
+            /* not JSON — fall through */
+          }
+        }
+      }
+      return { event: str('event'), id };
+    }
+  } catch (err) {
+    console.error('[fax webhook] unparseable payload', err instanceof Error ? err.message : err);
+  }
+  return { event: '', id: '' };
 }
 
 /** Notify the shop that a fax arrived. Best-effort; all values escaped. */
