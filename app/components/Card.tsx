@@ -34,8 +34,23 @@ export default function Card({ title, icon, features, href, cta }: CardProps) {
   );
 
   if (href) {
+    const linkClass = `block ${base} hover:border-blue/40`;
+    // next/link is for in-app routes only. mailto:/tel:/http: must render a plain
+    // anchor or the client router intercepts the click and the mail app never opens.
+    if (/^(mailto:|tel:|https?:)/i.test(href)) {
+      const offsite = /^https?:/i.test(href);
+      return (
+        <a
+          href={href}
+          className={linkClass}
+          {...(offsite ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        >
+          {inner}
+        </a>
+      );
+    }
     return (
-      <Link href={href} className={`block ${base} hover:border-blue/40`}>
+      <Link href={href} className={linkClass}>
         {inner}
       </Link>
     );

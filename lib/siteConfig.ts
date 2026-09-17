@@ -10,10 +10,13 @@ export const SITE = {
   shortName: 'SL Pack & Ship',
   url: SITE_URL,
   description:
-    'Storm Lake Pack & Ship offers shipping, professional packing, printing & copy, and mailbox rental in Storm Lake, Iowa. Compare UPS, FedEx, and USPS rates, pack fragile items safely, and ship domestic or international — all in one trusted local shop.',
-  tagline: 'Shipping, Packing, Printing & Mailbox Rental in Storm Lake, Iowa',
+    'Storm Lake Pack & Ship offers shipping, professional packing, printing & copy, and send/receive fax service in Storm Lake, Iowa. Compare UPS, FedEx, and USPS rates, pack fragile items safely, and ship domestic or international — all in one trusted local shop.',
+  tagline: 'Shipping, Packing, Printing & Fax Service in Storm Lake, Iowa',
   telephone: '+1-712-560-1128',
   telephoneDisplay: '(712) 560-1128',
+  /** Public fax line customers send TO (Sinch-backed; see sinch_fax_notes.md). */
+  fax: '+1-208-247-4489',
+  faxDisplay: '(208) 247-4489',
   email: 'shipit@slpacknship.com',
   address: {
     street: '503 Lake Ave',
@@ -38,7 +41,7 @@ export const SITE = {
     'Domestic & international shipping',
     'Professional & custom packing',
     'Printing & copy services',
-    'Mailbox rental',
+    'Send & receive fax service',
     'Bulk & business shipping',
     'Website building & hosting',
   ],
@@ -51,7 +54,8 @@ export const SITE = {
     'USPS Storm Lake',
     'ship a package Storm Lake IA',
     'printing and copy Storm Lake',
-    'mailbox rental Storm Lake',
+    'fax service Storm Lake Iowa',
+    'send a fax near me',
     'pack and ship 50588',
   ],
 } as const;
@@ -68,6 +72,7 @@ export function localBusinessJsonLd() {
     image: SITE.logo,
     logo: SITE.logo,
     telephone: SITE.telephone,
+    faxNumber: SITE.fax,
     email: SITE.email,
     priceRange: '$$',
     address: {

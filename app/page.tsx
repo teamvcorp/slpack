@@ -8,6 +8,29 @@ import WebsiteQuoteForm from "./components/WebsiteQuoteForm";
 import { Footer } from "./components/Footer";
 import AdminShortcut from "./components/AdminShortcut";
 import { SITE, localBusinessJsonLd } from "@/lib/siteConfig";
+import { FAX_PRICING, money } from "@/lib/faxPricing";
+
+/**
+ * "Email us your PDF" link for the fax card. Pre-fills the subject and a short
+ * form in the body — above all the DESTINATION FAX NUMBER, which we have no way
+ * to infer from an emailed attachment. A template literal (real newlines) keeps
+ * the body readable; encodeURIComponent makes it mailto-safe. Static, so it is
+ * built once at module scope.
+ */
+const FAX_MAILTO_BODY = `Please fax the attached PDF for me.
+
+Fax number to send to:
+Your name:
+Callback phone:
+
+Pricing: ${money(FAX_PRICING.outbound.firstPage)} first page, ${money(
+  FAX_PRICING.outbound.additionalPage
+)} each additional page. Cover page is free.
+We'll confirm the total and let you know once it has been delivered.`;
+
+const faxMailto = `mailto:${SITE.email}?subject=${encodeURIComponent(
+  'Fax request'
+)}&body=${encodeURIComponent(FAX_MAILTO_BODY)}`;
 
 export default function Home() {
   return (
@@ -159,14 +182,19 @@ export default function Home() {
                   "Business cards & flyers",
                 ]}
               />
+              {/* Mailbox Rental is HIDDEN until we actually offer boxes — don't
+                  advertise a service we can't fulfill. Restore this card (and
+                  'Mailbox rental' in SITE.services/keywords) when boxes are in. */}
               <Card
-                title="Mailbox Rental"
+                title="Fax Service"
                 icon=""
+                href={faxMailto}
+                cta="Email us your PDF"
                 features={[
-                  "Secure private mailbox",
-                  "Package receiving & holding",
-                  "Mail forwarding available",
-                  "24/7 access options",
+                  `Send a fax — ${money(FAX_PRICING.outbound.firstPage)} first page, ${money(FAX_PRICING.outbound.additionalPage)} each additional`,
+                  "Cover page included free",
+                  `Receive faxes at ${SITE.faxDisplay} — ${money(FAX_PRICING.inbound.perPage)} per page`,
+                  "We print incoming faxes and hold them for pickup",
                 ]}
               />
             </div>
