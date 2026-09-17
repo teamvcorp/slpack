@@ -5,8 +5,19 @@ import type { RegisterProduct } from '@/app/admin/types/register';
 // (account_id). Override with REGISTER_ACCOUNT_ID if needed.
 const REGISTER_ACCOUNT_ID = process.env.REGISTER_ACCOUNT_ID ?? 'acct_1TfVvHJvkGWktLIO';
 
-// Catalog rarely changes mid-shift; let the platform cache it briefly.
-export const revalidate = 60;
+// NOT cached. This was `revalidate = 60`, which meant a price corrected in the
+// admin (or the Stripe Dashboard) could take a minute to reach the counter --
+// long enough to ring up a customer at the old price. This is admin-only traffic
+// behind the proxy, so caching bought almost nothing. The cost of dropping it is
+// one products.list pagination per register load; limit:100 makes that a single
+// request in practice.
+//
+// Do NOT "optimize" this later with stripe.products.search: it supports
+// metadata['account_id'] filtering but is eventually consistent, with up to about
+// a minute of lag on newly created and updated objects -- reintroducing exactly
+// the staleness removed here.
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {

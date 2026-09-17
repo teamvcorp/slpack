@@ -40,7 +40,8 @@ export default function RegisterPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/register/products');
+        // no-store: the catalog must reflect an admin edit immediately.
+        const res = await fetch('/api/register/products', { cache: 'no-store' });
         const data = await res.json();
         if (cancelled) return;
         if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`);
