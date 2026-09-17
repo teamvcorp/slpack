@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { testPrint, refreshSettings } from '../components/receiptPrinter';
 import { refreshTerminalSettings } from '../components/stripeTerminal';
+import Link from 'next/link';
 import PackingPricingCard from '../components/PackingPricingCard';
 import CarrierIncentiveCard from '../components/CarrierIncentiveCard';
 
@@ -13,6 +14,8 @@ import CarrierIncentiveCard from '../components/CarrierIncentiveCard';
  *  - Packing pricing: per-square-inch rates behind the Box Size Calculator.
  *  - Carrier incentives: our discount off list, used to derive a cost basis
  *    when a carrier returns no account rate.
+ *  - Register items live on their own page (too large for a card here), linked
+ *    below so this page stays the index of everything configurable.
  */
 export default function SettingsPage() {
   return (
@@ -26,6 +29,25 @@ export default function SettingsPage() {
       <CardReaderCard />
       <PackingPricingCard />
       <CarrierIncentiveCard />
+      <RegisterItemsLink />
+    </div>
+  );
+}
+
+/** Pointer to the register item editor, which is a full page of its own. */
+function RegisterItemsLink() {
+  return (
+    <div className="mt-6 max-w-lg rounded-2xl border border-navy/10 bg-white p-6 shadow-sm">
+      <h2 className="text-base font-semibold text-navy">Register items</h2>
+      <p className="mt-0.5 text-xs text-navy/50">
+        What the register sells — names, prices, groups and button order.
+      </p>
+      <Link
+        href="/admin/register/items"
+        className="mt-4 inline-block rounded-lg bg-blue px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-navy"
+      >
+        Edit register items →
+      </Link>
     </div>
   );
 }

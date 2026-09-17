@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import RegisterCheckout from '../components/RegisterCheckout';
 import CombinedCheckout from '../components/CombinedCheckout';
 import { SALES_TAX_RATE } from '../types/register';
 import type { RegisterProduct, RegisterLineItem } from '../types/register';
+import type { RegisterGroup } from '@/lib/registerCatalog';
 import type { CartItem } from '../types/shipping';
 import { takeShippingCart } from '@/lib/comboHandoff';
 
@@ -18,6 +20,8 @@ function money(n: number): string {
 
 export default function RegisterPage() {
   const [products, setProducts] = useState<RegisterProduct[]>([]);
+  // Grid sections from the saved layout. Empty = fall back to one flat grid.
+  const [groups, setGroups] = useState<RegisterGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cart, setCart] = useState<RegisterLineItem[]>([]);
@@ -38,7 +42,7 @@ export default function RegisterPage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    async function load() {
       try {
         // no-store: the catalog must reflect an admin edit immediately.
         const res = await fetch('/api/register/products', { cache: 'no-store' });
@@ -46,13 +50,25 @@ export default function RegisterPage() {
         if (cancelled) return;
         if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`);
         setProducts(data.products ?? []);
+        setGroups(Array.isArray(data.groups) ? data.groups : []);
+        setLoadError(null);
       } catch (err: unknown) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load products.');
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
+    }
+    load();
+    // A price edited on another terminal should land here without a manual
+    // reload -- the cart is untouched, only the buttons refresh.
+    function onVisible() {
+      if (document.visibilityState === 'visible') load();
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   function addProduct(p: RegisterProduct) {
@@ -101,6 +117,21 @@ export default function RegisterPage() {
     setCustomPrice('');
   }
 
+  // Resolve the layout's id lists into renderable sections. If no layout is
+  // saved (or it resolved to nothing), fall back to a single unnamed section
+  // holding every product -- the flat grid the register has always shown.
+  const sections = useMemo(() => {
+    const byId = new Map(products.map((p) => [p.id, p]));
+    const resolved = groups
+      .map((g) => ({
+        id: g.id,
+        name: g.name,
+        products: g.productIds.map((id) => byId.get(id)).filter((p): p is RegisterProduct => Boolean(p)),
+      }))
+      .filter((g) => g.products.length > 0);
+    return resolved.length > 0 ? resolved : [{ id: '', name: '', products }];
+  }, [products, groups]);
+
   const subtotal = useMemo(
     () => cart.reduce((s, i) => s + i.unitAmountUSD * i.quantity, 0),
     [cart]
@@ -135,6 +166,12 @@ export default function RegisterPage() {
           <h1 className="text-2xl font-bold text-navy">Register</h1>
           <p className="mt-1 text-sm text-navy/50">Point of sale — products, cash &amp; card</p>
         </div>
+        <Link
+          href="/admin/register/items"
+          className="rounded-lg border border-navy/20 px-3 py-2 text-sm font-medium text-navy/70 transition-colors hover:border-blue/40 hover:text-blue"
+        >
+          Edit items →
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
@@ -164,22 +201,51 @@ export default function RegisterPage() {
           )}
 
           {products.length > 0 && (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {products.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => addProduct(p)}
-                  className="group flex flex-col rounded-xl border border-navy/10 bg-white p-4 text-left shadow-sm transition-all hover:border-blue/40 hover:shadow-md active:scale-95"
-                >
-                  <span className="text-sm font-semibold text-navy group-hover:text-blue">{p.name}</span>
-                  {p.description && (
-                    <span className="mt-0.5 line-clamp-2 text-xs text-navy/40">{p.description}</span>
+            <>
+              {/* Jump chips -- stateless anchors, so a long grouped grid stays
+                  navigable without hiding any section behind a tab. */}
+              {sections.length > 1 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {sections.map((g) => (
+                    <a
+                      key={g.id || 'other'}
+                      href={`#reg-sec-${g.id || 'other'}`}
+                      className="rounded-full border border-navy/15 bg-white px-3 py-1 text-xs font-semibold text-navy/70 transition-colors hover:border-blue/40 hover:text-blue"
+                    >
+                      {g.name}
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {sections.map((g) => (
+                <section key={g.id || 'other'} id={`reg-sec-${g.id || 'other'}`} className="mb-6 scroll-mt-4">
+                  {/* A single unnamed section means no layout is saved -- don't
+                      label the grid "Other" when there's nothing to contrast it with. */}
+                  {sections.length > 1 && (
+                    <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-navy/40">
+                      {g.name}
+                    </h2>
                   )}
-                  <span className="mt-auto pt-3 text-lg font-extrabold text-navy">{money(p.unitAmountUSD)}</span>
-                </button>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {g.products.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => addProduct(p)}
+                        className="group flex flex-col rounded-xl border border-navy/10 bg-white p-4 text-left shadow-sm transition-all hover:border-blue/40 hover:shadow-md active:scale-95"
+                      >
+                        <span className="text-sm font-semibold text-navy group-hover:text-blue">{p.name}</span>
+                        {p.description && (
+                          <span className="mt-0.5 line-clamp-2 text-xs text-navy/40">{p.description}</span>
+                        )}
+                        <span className="mt-auto pt-3 text-lg font-extrabold text-navy">{money(p.unitAmountUSD)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
               ))}
-            </div>
+            </>
           )}
 
           {/* Custom price — add an ad-hoc amount not in the catalog */}

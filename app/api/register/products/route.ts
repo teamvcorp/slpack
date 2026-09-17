@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import type { RegisterProduct } from '@/app/admin/types/register';
+import { REGISTER_ACCOUNT_ID, groupProducts } from '@/lib/registerCatalog';
+import { readCatalog } from '@/lib/registerCatalogStore';
 
 // Only show products tagged for this shop's account in Stripe metadata
-// (account_id). Override with REGISTER_ACCOUNT_ID if needed.
-const REGISTER_ACCOUNT_ID = process.env.REGISTER_ACCOUNT_ID ?? 'acct_1TfVvHJvkGWktLIO';
+// (account_id) -- the Stripe account is shared with another site.
 
 // NOT cached. This was `revalidate = 60`, which meant a price corrected in the
 // admin (or the Stripe Dashboard) could take a minute to reach the counter --
@@ -62,7 +63,22 @@ export async function GET() {
 
     products.sort((a, b) => a.name.localeCompare(b.name));
 
-    return NextResponse.json({ products });
+    // Grouping is a pure enhancement layered on a working register: if the saved
+    // layout is missing or Mongo is unreachable, `groups` collapses to a single
+    // "Other" section holding everything, i.e. the flat alphabetical grid this
+    // route has always returned. Selling never depends on it.
+    let groups;
+    try {
+      groups = groupProducts(products, await readCatalog());
+    } catch (err) {
+      console.error('[register products] layout read failed', err instanceof Error ? err.message : err);
+      groups = groupProducts(products, null);
+    }
+
+    // `products` keeps its exact historical shape so a browser still running the
+    // previous build keeps working while a deploy rolls out. `groups` carries ids
+    // only -- each product crosses the wire once.
+    return NextResponse.json({ products, groups });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
