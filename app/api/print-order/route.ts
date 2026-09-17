@@ -3,6 +3,7 @@ import { sanitizeEmail } from '@/lib/email';
 import { clientIp, hit } from '@/lib/rateLimit';
 import { SITE } from '@/lib/siteConfig';
 import { computePrintPrice, money, LAMINATION_PER_PAGE, type PrintColor } from '@/lib/printPricing';
+import { humanSize, isBlobUrl } from '@/lib/blobUpload';
 
 // Node runtime for Resend Buffer/email sending consistency with other routes.
 export const runtime = 'nodejs';
@@ -22,38 +23,6 @@ function esc(value: unknown): string {
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string
   );
-}
-
-/**
- * Accept only a Vercel Blob URL from OUR store — never email an arbitrary link.
- *
- * The old check was `.endsWith('.blob.vercel-storage.com')`, but that namespace
- * is shared: any Vercel tenant's public blob URL passed it, so an attacker could
- * host a malicious file on their own store and have us email the link to staff.
- * (2026-09-10)
- *
- * Now requires the `.public.` namespace, and — when BLOB_PUBLIC_HOSTNAME is set
- * to this store's host (read it off any uploaded file URL, e.g.
- * `abc123.public.blob.vercel-storage.com`) — an exact host match, which is the
- * complete fix. Left unset it degrades to the namespace check rather than
- * breaking uploads.
- */
-function isBlobUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'https:') return false;
-    const pinned = process.env.BLOB_PUBLIC_HOSTNAME?.trim();
-    if (pinned) return u.hostname === pinned;
-    return u.hostname.endsWith('.public.blob.vercel-storage.com');
-  } catch {
-    return false;
-  }
-}
-
-function humanSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '';
-  const mb = bytes / (1024 * 1024);
-  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 interface IncomingFile {
@@ -84,8 +53,6 @@ export async function POST(req: NextRequest) {
     const laminatePages = Math.max(0, Number(body.laminatePages) || 0);
     const collated = Boolean(body.collated);
     const stapled = Boolean(body.stapled);
-    const sendToRecipient = Boolean(body.sendToRecipient);
-    const recipientEmail = sendToRecipient ? sanitizeEmail(body.recipientEmail) : undefined;
     const notes = String(body.notes ?? '').trim();
 
     if (!name || !email) {
@@ -93,9 +60,6 @@ export async function POST(req: NextRequest) {
     }
     if (notes.length > MAX_TEXT) {
       return NextResponse.json({ error: 'Instructions are too long.' }, { status: 400 });
-    }
-    if (sendToRecipient && !recipientEmail) {
-      return NextResponse.json({ error: 'Enter a valid recipient email, or uncheck "email to someone".' }, { status: 400 });
     }
 
     // Validate uploaded blob references (client uploaded straight to Vercel Blob).
@@ -165,7 +129,6 @@ export async function POST(req: NextRequest) {
       ${row('Copies', String(copies))}
       ${row('Laminate', laminatePages > 0 ? `${laminatePages} page${laminatePages === 1 ? '' : 's'}` : 'No')}
       ${row('Finishing', finishing)}
-      ${sendToRecipient && recipientEmail ? row('Email finished files to', recipientEmail) : ''}
       ${estimateHtml}
       ${notes ? `<p style="margin:10px 0 4px;"><strong>Instructions:</strong></p>
         <p style="white-space:pre-wrap;border-left:3px solid #34aef8;padding-left:12px;color:#333;margin:0;">${esc(notes)}</p>` : ''}
@@ -210,7 +173,7 @@ export async function POST(req: NextRequest) {
           <p>Thanks — we received your ${files.length} document${files.length === 1 ? '' : 's'} for
           ${color === 'color' ? 'color' : 'black &amp; white'} printing${copies > 1 ? ` (${copies} copies)` : ''}.
           ${quote.totalPages > 0 ? `Estimated total: <strong>${money(quote.total)}</strong> (confirmed at the counter).` : ''}</p>
-          <p>We'll get it ready${sendToRecipient && recipientEmail ? ` and email the finished files to ${esc(recipientEmail)}` : ''}.
+          <p>We'll get it ready.
           Questions? Just reply, or call ${esc(SITE.telephoneDisplay)}.</p>
           <p style="color:#666;">— ${esc(SITE.name)}</p>
         </div>`,

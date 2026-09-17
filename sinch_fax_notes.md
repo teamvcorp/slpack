@@ -116,6 +116,28 @@ PDF, DOC, DOCX, TIF, JPG, TXT, PNG, plus HTML and a fetchable URL (`contentUrl`)
 | `SINCH_FAX_WEBHOOK_TOKEN` | Unguessable secret in the webhook URL (fail-closed) |
 | (reused) `BLOB_READ_WRITE_TOKEN`, `RESEND_API_KEY`, `NEXT_PUBLIC_BASE_URL` | archive / email / callback base |
 
+## Public fax requests (/fax) — 2026-09-17
+
+Customers can now **upload a PDF or email one**; they no longer need a fax machine.
+
+- `app/fax/page.tsx` — public page: pricing, the request form, our inbound number,
+  and a mailto fallback for people who'd rather email.
+- `app/components/FaxRequestForm.tsx` — upload + destination number + optional
+  page count (live estimate) + cover note. Honeypot, like the print form.
+- `app/api/fax-request/upload/route.ts` — Blob token minting, **PDF only**.
+- `app/api/fax-request/route.ts` — validates, then emails the shop a job with the
+  Blob links and the number to dial. **It does NOT send the fax**: sending costs
+  money and the customer pays at the counter, so staff dial it from Admin → Fax.
+  Destination is normalized with the same `toE164()` the admin send path uses, so
+  what staff see is exactly what will be dialed.
+- Both routes are in `proxy.ts` PUBLIC_PATHS (exact-match, as that file requires).
+
+**Shared with the print counter** (`lib/blobUpload.ts` server, `lib/clientUpload.ts`
+client) rather than copied: rate limiting, the 50 MB cap, token minting, and the
+`isBlobUrl()` store check that stops us emailing staff a link to an attacker's own
+Blob store. One implementation means a fix to either safeguard can't land on one
+endpoint and be forgotten on the other.
+
 ## Owner setup steps
 
 1. Create the Sinch account + a **fax-enabled number**. ⚠️ **New Sinch accounts have

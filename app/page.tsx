@@ -10,28 +10,6 @@ import AdminShortcut from "./components/AdminShortcut";
 import { SITE, localBusinessJsonLd } from "@/lib/siteConfig";
 import { FAX_PRICING, money } from "@/lib/faxPricing";
 
-/**
- * "Email us your PDF" link for the fax card. Pre-fills the subject and a short
- * form in the body — above all the DESTINATION FAX NUMBER, which we have no way
- * to infer from an emailed attachment. A template literal (real newlines) keeps
- * the body readable; encodeURIComponent makes it mailto-safe. Static, so it is
- * built once at module scope.
- */
-const FAX_MAILTO_BODY = `Please fax the attached PDF for me.
-
-Fax number to send to:
-Your name:
-Callback phone:
-
-Pricing: ${money(FAX_PRICING.outbound.firstPage)} first page, ${money(
-  FAX_PRICING.outbound.additionalPage
-)} each additional page. Cover page is free.
-We'll confirm the total and let you know once it has been delivered.`;
-
-const faxMailto = `mailto:${SITE.email}?subject=${encodeURIComponent(
-  'Fax request'
-)}&body=${encodeURIComponent(FAX_MAILTO_BODY)}`;
-
 export default function Home() {
   return (
     <>
@@ -178,7 +156,7 @@ export default function Home() {
                 features={[
                   "Black & white and color printing",
                   "Upload PDF or Word — any size",
-                  "Collated, stapled, emailed",
+                  "Collated, stapled, ready for pickup",
                   "Business cards & flyers",
                 ]}
               />
@@ -188,8 +166,8 @@ export default function Home() {
               <Card
                 title="Fax Service"
                 icon=""
-                href={faxMailto}
-                cta="Email us your PDF"
+                href="/fax"
+                cta="Send a fax"
                 features={[
                   `Send a fax — ${money(FAX_PRICING.outbound.firstPage)} first page, ${money(FAX_PRICING.outbound.additionalPage)} each additional`,
                   "Cover page included free",

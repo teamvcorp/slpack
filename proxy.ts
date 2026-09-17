@@ -27,6 +27,10 @@ const PUBLIC_PATHS = new Set<string>([
   '/api/website-quote',
   '/api/print-order',
   '/api/print-order/upload',
+  // Public fax requests from /fax — same shape as print-order: rate limited,
+  // honeypotted, and only accepts Blob URLs from our own store.
+  '/api/fax-request',
+  '/api/fax-request/upload',
   '/api/identity/webhook',
   '/api/webhooks/stripe',
   // Sinch Fax inbound + status webhook — self-guarded by a ?token= secret

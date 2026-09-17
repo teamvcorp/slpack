@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { upload } from "@vercel/blob/client";
+import { DOC_ACCEPT, DOC_EXTENSIONS, findDisallowedFile, uploadDocuments } from "@/lib/clientUpload";
 import {
   computePrintPrice,
   money,
@@ -13,10 +13,6 @@ import {
 
 type Status = "idle" | "uploading" | "sending" | "sent" | "error";
 
-const ACCEPT =
-  ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-const ALLOWED_EXT = [".pdf", ".doc", ".docx"];
-
 const EMPTY = {
   name: "",
   email: "",
@@ -25,7 +21,6 @@ const EMPTY = {
   copies: "1",
   laminatePages: "",
   notes: "",
-  recipientEmail: "",
   hp_check: "", // honeypot — must stay empty; odd name so autofill ignores it
 };
 
@@ -35,7 +30,6 @@ export default function PrintOrderForm() {
   const [sides, setSides] = useState<PrintSides>("single");
   const [collated, setCollated] = useState(false);
   const [stapled, setStapled] = useState(false);
-  const [sendToRecipient, setSendToRecipient] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [progress, setProgress] = useState("");
@@ -57,9 +51,7 @@ export default function PrintOrderForm() {
   function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(e.target.files ?? []);
     setErrorMsg(null);
-    const bad = picked.find(
-      (f) => !ALLOWED_EXT.some((ext) => f.name.toLowerCase().endsWith(ext))
-    );
+    const bad = findDisallowedFile(picked, DOC_EXTENSIONS);
     if (bad) {
       setErrorMsg(`"${bad.name}" isn't a PDF or Word document.`);
       return;
@@ -74,25 +66,13 @@ export default function PrintOrderForm() {
       setErrorMsg("Please attach at least one PDF or Word document.");
       return;
     }
-    if (sendToRecipient && !formData.recipientEmail.trim()) {
-      setErrorMsg("Enter the recipient email, or uncheck “email finished files to someone”.");
-      return;
-    }
-
     try {
       // 1. Upload each document straight to Vercel Blob (no request-size limit).
       setStatus("uploading");
-      const uploaded: { name: string; url: string; size: number }[] = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setProgress(`Uploading ${i + 1} of ${files.length}: ${file.name}`);
-        const blob = await upload(file.name, file, {
-          access: "public",
-          handleUploadUrl: "/api/print-order/upload",
-          multipart: true, // chunked upload — reliable for large files
-        });
-        uploaded.push({ name: file.name, url: blob.url, size: file.size });
-      }
+      const uploaded = await uploadDocuments(files, {
+        handleUploadUrl: "/api/print-order/upload",
+        onProgress: setProgress,
+      });
 
       // 2. Send the order (options + estimate + blob links) to the shop.
       setStatus("sending");
@@ -106,7 +86,6 @@ export default function PrintOrderForm() {
           sides,
           collated,
           stapled,
-          sendToRecipient,
           pages: pagesNum,
           copies: copiesNum,
           laminatePages: laminateNum,
@@ -124,8 +103,7 @@ export default function PrintOrderForm() {
       setSides("single");
       setCollated(false);
       setStapled(false);
-      setSendToRecipient(false);
-      setFiles([]);
+        setFiles([]);
       if (fileRef.current) fileRef.current.value = "";
     } catch (err: unknown) {
       setStatus("error");
@@ -298,7 +276,7 @@ export default function PrintOrderForm() {
           id="po-files"
           name="files"
           multiple
-          accept={ACCEPT}
+          accept={DOC_ACCEPT}
           onChange={handleFiles}
           className="mt-1 w-full rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm text-navy file:mr-3 file:rounded-md file:border-0 file:bg-blue/10 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue hover:file:bg-blue/20"
         />
@@ -306,24 +284,6 @@ export default function PrintOrderForm() {
           <p className="mt-1 text-xs text-navy/50">
             {files.length} file{files.length > 1 ? "s" : ""} selected
           </p>
-        )}
-      </div>
-
-      {/* Email finished files to someone */}
-      <div>
-        <label className="flex items-center gap-2 text-sm text-navy/80">
-          <input type="checkbox" checked={sendToRecipient} onChange={(e) => setSendToRecipient(e.target.checked)} className="h-4 w-4 rounded border-navy/30 text-blue focus:ring-blue" />
-          Email the finished files to someone
-        </label>
-        {sendToRecipient && (
-          <input
-            type="email"
-            name="recipientEmail"
-            placeholder="recipient@example.com"
-            value={formData.recipientEmail}
-            onChange={handleChange}
-            className={`${inputClass} mt-2`}
-          />
         )}
       </div>
 

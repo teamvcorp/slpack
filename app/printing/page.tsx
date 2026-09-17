@@ -32,8 +32,7 @@ export default function PrintingPage() {
             </h1>
             <p className="mt-4 text-navy/70">
               Upload PDF or Word files — <strong>any size</strong>, as many as you need. Choose black
-              &amp; white or color, collated and stapled, and we&apos;ll have them ready. We can even
-              email the finished files to someone for you.
+              &amp; white or color, collated and stapled, and we&apos;ll have them ready for pickup.
             </p>
           </div>
 
