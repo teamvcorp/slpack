@@ -4,6 +4,7 @@ import { sanitizeEmail } from '@/lib/email';
 import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
 import { appendError } from '@/lib/errorLog';
 import { paymentBindingEnabled, getValidQuote } from '@/lib/quoteStore';
+import { attributionMetadata } from '@/lib/shopIdentity';
 
 /**
  * STOPGAP ceiling (2026-09-10), removed once server-side quote binding lands.
@@ -109,6 +110,10 @@ export async function POST(req: NextRequest) {
         receipt_email: cleanEmail,
         description: `Shipping: ${String(carrier).toUpperCase()} — ${serviceName}`,
         metadata: {
+          // Revenue attribution for the shared platform account — without this
+          // an off-session shipping charge is anonymous in the balance.
+          // See lib/shopIdentity.ts and SHOP_CHARGE_TAGGING.md.
+          ...attributionMetadata('shipping', feeUSD),
           carrier: String(carrier),
           service: String(serviceName),
           originZip: String(shipmentDetails?.originZip ?? ''),

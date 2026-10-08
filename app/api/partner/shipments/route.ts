@@ -18,6 +18,7 @@ import {
 } from '@/lib/partnerShipmentLog';
 import { sendPartnerLabelEmail, sendPartnerPickupNotice } from '@/lib/partnerEmail';
 import { randomUUID } from 'crypto';
+import { attributionMetadata } from '@/lib/shopIdentity';
 
 /**
  * /api/partner/shipments
@@ -166,7 +167,7 @@ export const POST = withPartnerAuth(ROUTE, async (req, { partner, ip, keyId }) =
     );
   }
 
-  const paymentError = await verifyPayment(paymentIntentId, quote);
+  const paymentError = await verifyPayment(paymentIntentId, quote, partner.partnerId);
   if (paymentError) {
     await logPartnerEvent({
       ok: false, route: ROUTE, ip, keyId, partnerId: partner.partnerId, status: 402,
@@ -286,7 +287,11 @@ export const GET = withPartnerAuth(ROUTE, async (req, { partner }) => {
  * failure, or null when the payment is good. Retrieving with the shared account
  * key means a PI created on another Stripe account simply isn't found → failure.
  */
-async function verifyPayment(paymentIntentId: string, quote: PartnerQuote): Promise<string | null> {
+async function verifyPayment(
+  paymentIntentId: string,
+  quote: PartnerQuote,
+  partnerId: string
+): Promise<string | null> {
   try {
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
@@ -301,6 +306,28 @@ async function verifyPayment(paymentIntentId: string, quote: PartnerQuote): Prom
     // metadata.quoteId is recommended, not required: enforce it only if present.
     const stamped = typeof pi.metadata?.quoteId === 'string' ? pi.metadata.quoteId : '';
     if (stamped && stamped !== quote.quoteId) return 'quote_mismatch';
+
+    // Stamp attribution onto the partner's PaymentIntent.
+    //
+    // The partner creates this PI on their own checkout against the SHARED
+    // platform account, so we can't set its metadata at creation — but the funds
+    // land in our balance, so without a shop tag the charge is unattributable
+    // and can't be reconciled. This verification step is the one moment we hold
+    // the PI, so we tag it here. Metadata is writable after success.
+    //
+    // Best-effort and deliberately non-fatal: attribution is reporting, and a
+    // customer who has already paid must still get their label.
+    try {
+      await stripe.paymentIntents.update(paymentIntentId, {
+        metadata: { ...pi.metadata, ...attributionMetadata('partner', 0), partner_id: partnerId },
+      });
+    } catch (err) {
+      console.error(
+        '[partner] attribution stamp failed',
+        err instanceof Error ? err.message : err
+      );
+    }
+
     return null;
   } catch {
     return 'retrieve_failed';

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeEmail } from '@/lib/email';
 import { priceCart } from '@/lib/registerPricing';
 import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
+import { attributionMetadata } from '@/lib/shopIdentity';
 import type { RegisterLineItem } from '@/app/admin/types/register';
 
 /**
@@ -74,6 +75,10 @@ export async function POST(req: NextRequest) {
         ? `Register + shipping — ${items.length} item${items.length !== 1 ? 's' : ''} + shipping`
         : `Register sale — ${items.length} item${items.length !== 1 ? 's' : ''}`,
       metadata: {
+        // Revenue attribution for the shared platform account — see
+        // lib/shopIdentity.ts and SHOP_CHARGE_TAGGING.md. Spread first so the
+        // explicit `source` below stays authoritative for this route.
+        ...attributionMetadata(combined ? 'combined' : 'register', cardFeeUSD),
         source: combined ? 'combined' : 'register',
         itemCount: String(items.length),
         subtotalUSD: priced.subtotalUSD.toFixed(2),

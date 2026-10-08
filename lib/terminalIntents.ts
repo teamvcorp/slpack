@@ -1,5 +1,5 @@
 import client, { IGNORE_UNDEFINED } from '@/lib/mongodb';
-import { SITE_URL } from '@/lib/siteConfig';
+import { SITE_TAG } from '@/lib/shopIdentity';
 
 /**
  * Ownership record for Stripe Terminal PaymentIntents (2026-09-10).
@@ -16,14 +16,14 @@ import { SITE_URL } from '@/lib/siteConfig';
 const DB = 'slpack';
 const COLLECTION = 'terminalIntents';
 
-/** This deployment's site tag (host without www) — matches the PI metadata.site. */
-export const SITE_TAG = (() => {
-  try {
-    return new URL(SITE_URL).hostname.replace(/^www\./, '');
-  } catch {
-    return 'slpack';
-  }
-})();
+/**
+ * This deployment's site tag — matches the PI `metadata.site`.
+ *
+ * Moved to lib/shopIdentity.ts, which also defines SHOP_ID (the stable
+ * attribution key). Re-exported here so this module's existing importers and the
+ * reader ownership guard are unaffected.
+ */
+export { SITE_TAG };
 
 /** Record a PaymentIntent this site just created on the shared reader. */
 export async function recordTerminalIntent(paymentIntentId: string): Promise<void> {

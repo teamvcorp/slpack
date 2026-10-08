@@ -3,6 +3,7 @@ import { sanitizeEmail } from '@/lib/email';
 import { priceCart } from '@/lib/registerPricing';
 import client from '@/lib/mongodb';
 import { SITE_TAG, recordTerminalIntent } from '@/lib/terminalIntents';
+import { attributionMetadata } from '@/lib/shopIdentity';
 import type { RegisterLineItem } from '@/app/admin/types/register';
 
 /**
@@ -90,7 +91,14 @@ export async function POST(req: NextRequest) {
       capture_method: 'automatic',
       receipt_email: customerEmail,
       description,
-      metadata: { source: 'terminal', site: SITE_TAG, totalUSD: amountUSD.toFixed(2) },
+      // `site` is retained for continuity with rows written before SHOP_ID
+      // existed; `shop_id` is what the transfer app groups by. No surcharge is
+      // applied in person — card funding isn't known before the tap.
+      metadata: {
+        ...attributionMetadata('terminal', 0),
+        site: SITE_TAG,
+        totalUSD: amountUSD.toFixed(2),
+      },
     });
     paymentIntentId = pi.id;
     // Claim this PI for our site so status/cancel will act on it (and refuse

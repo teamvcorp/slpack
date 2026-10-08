@@ -4,6 +4,7 @@ import { sanitizeEmail } from '@/lib/email';
 import { computeCardFee, normalizeFunding } from '@/lib/cardFee';
 import { appendError } from '@/lib/errorLog';
 import { paymentBindingEnabled, getValidQuote } from '@/lib/quoteStore';
+import { attributionMetadata } from '@/lib/shopIdentity';
 
 /**
  * Ceiling on any single charge. With payment binding OFF this is the only guard
@@ -141,6 +142,11 @@ export async function POST(req: NextRequest) {
       ...(paymentMethodId ? { payment_method: String(paymentMethodId) } : {}),
       ...(customerId ? { customer: customerId, setup_future_usage: 'off_session' } : {}),
       metadata: {
+        // Revenue attribution for the shared platform account: this route
+        // carried carrier/service detail but nothing saying WHICH shop earned
+        // the charge, so counter shipping was unattributable in the platform
+        // balance. See lib/shopIdentity.ts and SHOP_CHARGE_TAGGING.md.
+        ...attributionMetadata('shipping', feeUSD),
         carrier: String(carrier),
         service: String(serviceName),
         originZip: String(shipmentDetails?.originZip ?? ''),
